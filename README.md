@@ -94,8 +94,7 @@ Upwork-Acquisition-Pipeline/
 │   ├── 04_score_distribution.sql
 │   ├── 05_session_performance.sql
 │   ├── 06_proposal_analysis.sql
-│   ├── 07_keyword_intelligence.sql
-│   └── 08_quick_notes_breakdown.sql
+│   └── 07_complexity_breakdown.sql
 ├── apps_script/
 │   └── upwork_acquisition_system.gs
 └── screenshots/
