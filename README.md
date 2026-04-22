@@ -30,14 +30,13 @@ Google Sheets (live data entry + Apps Script automation) → CSV exports → Big
 
 | File | Description |
 |------|-------------|
-| 01_pipeline_funnel.sql | Conversion rates across all 4 pipeline stages |
-| 02_keyword_performance.sql | APPLY rate, avg score, competition, and efficiency by keyword |
-| 03_tool_market_share.sql | Job volume and scoring rate by BI tool |
-| 04_score_distribution.sql | Score band breakdown with APPLY/SKIP counts + avg score |
-| 05_session_performance.sql | Session-level yield, connects, and proposal activity |
-| 06_proposal_analysis.sql | Template performance with reply, interview, and hire rates |
-| 07_keyword_intelligence.sql | Priority score, connect efficiency, and status by keyword |
-| 08_quick_notes_breakdown.sql | Job complexity distribution from discovery notes |
+| [01_pipeline_funnel](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/01_pipeline_funnel.sql) | Conversion rates across all 4 pipeline stages |
+| [02_keyword_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/02_keyword_performance.sql) | APPLY rate, avg score, competition, and efficiency by keyword |
+| [03_tool_market_share](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/03_tool_market_share.sql) | Job volume and scoring rate by BI tool |
+| [04_score_distribution](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/04_score_distribution.sql) | Score band breakdown with APPLY/SKIP counts + avg score |
+| [05_session_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/05_session_performance.sql) | Session-level yield, connects, and proposal activity |
+| [06_proposal_analysis](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/06_proposal_analysis.sql) | Template performance with reply, interview, and hire rates |
+| [07_complexity_breakdown](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/07_complexity_breakdown.sql) | Priority score, connect efficiency, and status by keyword |
 
 ---
 
@@ -54,6 +53,7 @@ The Google Sheets automation handles:
 - Month-end snapshot to Monthly_Performance tab
 - Keyword mining from job descriptions
 
+[Upwork Acquisition System Apps Script](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/upwork_acquisition_system.gs) 
 ---
 
 ## 🔑 Key Results (April 2026)
