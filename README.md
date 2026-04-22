@@ -1,2 +1,112 @@
-# Upwork-Acquisition-Pipeline
-End-to-end data pipeline tracking freelance client acquisition across job discovery, scoring, and proposal activity.
+# 🔍 Upwork Client Acquisition Pipeline
+
+**End-to-end data pipeline tracking freelance client acquisition across job discovery, scoring, and proposal activity.**
+
+---
+
+## 📌 Project Overview
+
+Built a fully automated client acquisition system for Benchline Analytics, a freelance data analytics consultancy. The pipeline tracks every stage from job discovery through proposal submission, using Google Sheets as the operational layer and BigQuery as the analytical layer.
+
+**Pipeline flow:**
+Google Sheets (live data entry + Apps Script automation) → CSV exports → BigQuery → SQL analysis → Excel dashboard
+
+---
+
+## 📊 Data Scope
+
+| Table | Rows | Description |
+|-------|------|-------------|
+| job_discovery | 193 | All jobs logged across 19 sessions |
+| job_scoring | 109 | Jobs scored and assigned APPLY / SKIP / HOLD |
+| session_log | 19 | Session-level activity and yield tracking |
+| proposal_tracker | 26 | Proposals sent with outcome tracking |
+| keyword_search_list | 18 | Active keyword targets |
+| keyword_intelligence | 18 | Keyword priority scoring and status |
+
+---
+
+## 🗂️ SQL Queries
+
+| File | Description |
+|------|-------------|
+| 01_pipeline_funnel.sql | Conversion rates across all 4 pipeline stages |
+| 02_keyword_performance.sql | APPLY rate, avg score, competition, and efficiency by keyword |
+| 03_tool_market_share.sql | Job volume and scoring rate by BI tool |
+| 04_score_distribution.sql | Score band breakdown with APPLY/SKIP counts + avg score |
+| 05_session_performance.sql | Session-level yield, connects, and proposal activity |
+| 06_proposal_analysis.sql | Template performance with reply, interview, and hire rates |
+| 07_keyword_intelligence.sql | Priority score, connect efficiency, and status by keyword |
+| 08_quick_notes_breakdown.sql | Job complexity distribution from discovery notes |
+
+---
+
+## ⚙️ Apps Script System
+
+The Google Sheets automation handles:
+- Session management (start, end, yield tracking)
+- Job discovery logging with AI-powered Quick Notes classification
+- Duplicate job link detection
+- Auto-scoring triggers when Final_Decision = APPLY
+- AI proposal generation via GPT-4o-mini
+- Bid recommendation engine
+- Proposal and follow-up tracker auto-population
+- Month-end snapshot to Monthly_Performance tab
+- Keyword mining from job descriptions
+
+---
+
+## 🔑 Key Results (April 2026)
+
+| Metric | Value |
+|--------|-------|
+| Jobs Discovered | 209 |
+| Moved to Scoring | 121 (57.9%) |
+| APPLY Decisions | 85 (40.7%) |
+| Proposals Sent | 26 (12.0%) |
+| Replies | 1 |
+| Interviews | 1 |
+| Hires | 1 |
+| Avg Job Score | 0.71 |
+| Top Keyword by Priority | Power BI Sales Dashboard |
+
+---
+
+## 🛠️ Tools & Technologies
+
+- **Google Sheets** — operational data entry and formula layer
+- **Google Apps Script** — automation, AI integration, session management
+- **BigQuery** — SQL analysis and data warehousing
+- **OpenAI GPT-4o-mini** — Quick Notes classification, proposal generation, bid recommendations
+- **Excel** — dashboard visualization layer
+
+---
+
+## 📁 Repository Structure
+
+```
+Upwork-Acquisition-Pipeline/
+├── README.md
+├── queries/
+│   ├── 01_pipeline_funnel.sql
+│   ├── 02_keyword_performance.sql
+│   ├── 03_tool_market_share.sql
+│   ├── 04_score_distribution.sql
+│   ├── 05_session_performance.sql
+│   ├── 06_proposal_analysis.sql
+│   ├── 07_keyword_intelligence.sql
+│   └── 08_quick_notes_breakdown.sql
+├── apps_script/
+│   └── upwork_acquisition_system.gs
+└── screenshots/
+    ├── bigquery_funnel_results.png
+    ├── bigquery_keyword_results.png
+    └── google_sheets_system.png
+```
+
+---
+
+## 🔗 Related Project
+
+The SQL exports from this pipeline feed directly into the Excel dashboard:
+[Upwork Acquisition Dashboard](https://github.com/visualkirby/Upwork-Acquisition-Dashboard)
