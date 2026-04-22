@@ -28,6 +28,11 @@ Google Sheets (live data entry + Apps Script automation) → CSV exports → Big
 
 ## 🗂️ SQL Queries
 
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Google_BigQuery.png)
+
 | File | Description |
 |------|-------------|
 | [01_pipeline_funnel](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/01_pipeline_funnel.sql) | Conversion rates across all 4 pipeline stages |
@@ -37,6 +42,47 @@ Google Sheets (live data entry + Apps Script automation) → CSV exports → Big
 | [05_session_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/05_session_performance.sql) | Session-level yield, connects, and proposal activity |
 | [06_proposal_analysis](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/06_proposal_analysis.sql) | Template performance with reply, interview, and hire rates |
 | [07_complexity_breakdown](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/07_complexity_breakdown.sql) | Priority score, connect efficiency, and status by keyword |
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Pipeline_Funnel_Results.png)
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Keyword_Performance_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Tool_Market_Share_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Score_Distribution_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Session_Performance_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Proposal_Analysis_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Complexity_Breakdown_Results.png)
+
 
 ---
 
@@ -74,11 +120,21 @@ The Google Sheets automation handles:
 
 ## 🛠️ Tools & Technologies
 
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Google_Sheets_System.png)
+
 - **Google Sheets** — operational data entry and formula layer
 - **Google Apps Script** — automation, AI integration, session management
 - **BigQuery** — SQL analysis and data warehousing
 - **OpenAI GPT-4o-mini** — Quick Notes classification, proposal generation, bid recommendations
 - **Excel** — dashboard visualization layer
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./Excel_System.png)
 
 ---
 
@@ -98,6 +154,7 @@ Upwork-Acquisition-Pipeline/
 ├── apps_script/
 │   └── upwork_acquisition_system.gs
 └── screenshots/
+    ├── Google_BigQuery.png
     ├── Pipeline_Funnel_Results.png
     ├── Keyword_Performance_Results.png
     ├── Tool_Market_Share_Results.png
@@ -105,9 +162,8 @@ Upwork-Acquisition-Pipeline/
     ├── Session_Performance_Results.png
     ├── Proposal_Analysis_Results.png
     ├── Complexity_Breakdown_Results.png
-    ├── Excel_System.png
     ├── Google_Sheets_System.png
-    └── Google_BigQuery.png
+    └── Excel_System.png
 ```
 
 ---
