@@ -98,9 +98,16 @@ Upwork-Acquisition-Pipeline/
 ├── apps_script/
 │   └── upwork_acquisition_system.gs
 └── screenshots/
-    ├── bigquery_funnel_results.png
-    ├── bigquery_keyword_results.png
-    └── google_sheets_system.png
+    ├── Pipeline_Funnel_Results.png
+    ├── Keyword_Performance_Results.png
+    ├── Tool_Market_Share_Results.png
+    ├── Score_Distribution_Results.png
+    ├── Session_Performance_Results.png
+    ├── Proposal_Analysis_Results.png
+    ├── Complexity_Breakdown_Results.png
+    ├── Excel_System.png
+    ├── Google_Sheets_System.png
+    └── Google_BigQuery.png
 ```
 
 ---
