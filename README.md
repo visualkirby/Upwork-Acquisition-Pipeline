@@ -123,7 +123,7 @@ The Google Sheets automation handles:
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Google_Sheets_System.png)
+![Preview](./Google_Sheets_Sysyem.png)
 
 - **Google Sheets** — operational data entry and formula layer
 - **Google Apps Script** — automation, AI integration, session management
