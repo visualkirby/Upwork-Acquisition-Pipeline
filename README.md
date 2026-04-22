@@ -81,7 +81,7 @@ Google Sheets (live data entry + Apps Script automation) → CSV exports → Big
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Complexity_Breakdown_Results.png)
+![Preview](./Complexity_Results.png)
 
 
 ---
