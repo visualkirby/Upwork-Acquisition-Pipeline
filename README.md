@@ -118,6 +118,20 @@ The Google Sheets automation handles:
 
 ---
 
+## 🔄 Live Refresh Architecture
+
+The pipeline is configured for semi-live updates without manual CSV exports:
+
+- **Google Sheets** — live data entry via Apps Script automation
+- **BigQuery External Tables** — 6 source tabs connected as live external data sources
+- **Connected Sheets** — 8 SQL queries run against external tables on a daily schedule
+- **Power Query (Excel)** — connects to Connected Sheets result tabs, refreshes on file open and every 60 minutes while open
+- **Dashboard** — all KPI tiles and charts update automatically on refresh
+
+No CSV exports required after initial setup.
+
+---
+
 ## 🛠️ Tools & Technologies
 
 <!-- ===================== -->
