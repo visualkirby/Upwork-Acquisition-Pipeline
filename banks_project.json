@@ -1,0 +1,126 @@
+{
+  "project_id": "PROJ_UPWORK_ACQUISITION_PIPELINE",
+  "group_id": "PROJECT_GROUP_ANALYTICS",
+
+  "title": "Upwork Client Acquisition Pipeline",
+  "short_summary": "End-to-end freelance job acquisition pipeline using Google Sheets, Apps Script, GPT-4o-mini, and BigQuery SQL",
+  "summary": "An automated end-to-end data pipeline tracking freelance client acquisition on Upwork. Google Sheets serves as the live operational database, with Apps Script managing session tracking, job discovery logging, duplicate detection, AI-powered bid recommendations via GPT-4o-mini, and keyword mining. Structured data is exported to BigQuery for SQL-based analysis across 8 analytical queries covering funnel performance, keyword intelligence, and proposal analytics.",
+
+  "role_scope": "base|operations",
+
+  "roles": [
+    "Data Analyst",
+    "Data Engineer",
+    "Business Analyst",
+    "Operations Analyst"
+  ],
+
+  "skills": [
+    "Google Apps Script",
+    "SQL",
+    "BigQuery",
+    "Google Sheets",
+    "Pipeline Design",
+    "API Integration",
+    "Funnel Analysis",
+    "Automation"
+  ],
+
+  "repo_link": "https://github.com/visualkirby/Upwork-Acquisition-Pipeline",
+
+  "domains": [
+    "data_engineering",
+    "business_analytics",
+    "acquisition_analytics",
+    "automation"
+  ],
+
+  "tags": [
+    "apps_script",
+    "google_sheets",
+    "bigquery",
+    "sql",
+    "automation",
+    "acquisition_pipeline",
+    "ai_integration"
+  ],
+
+  "datasets": [],
+
+  "components": [
+
+    {
+      "component_id": "COMP_UPWORK_PIPELINE_SHEETS",
+      "name": "Google Sheets Data Layer",
+      "component_type": "extract_layer",
+      "deliverable_type": "operational_database",
+
+      "objective": "Maintain a structured Google Sheets database for live job discovery, scoring, proposal tracking, session logging, and keyword intelligence.",
+      "business_value": "Creates a real-time, structured operational record of all acquisition activity that feeds downstream analysis without requiring a formal database.",
+
+      "component_link": "https://github.com/visualkirby/Upwork-Acquisition-Pipeline",
+
+      "files": [],
+
+      "tools": [
+        { "tool_label": "Google Sheets", "tool_keyword": "google_sheets" }
+      ],
+
+      "skills": [
+        { "skill_label": "Data Architecture", "skill_keyword": "data_architecture", "weight": 0.5 },
+        { "skill_label": "Database Design", "skill_keyword": "database_design", "weight": 0.5 }
+      ]
+    },
+
+    {
+      "component_id": "COMP_UPWORK_PIPELINE_SCRIPT",
+      "name": "Apps Script Automation Layer",
+      "component_type": "automation",
+      "deliverable_type": "automation_scripts",
+
+      "objective": "Automate session management, duplicate detection, job scoring, AI proposal generation, and keyword mining using Google Apps Script and GPT-4o-mini.",
+      "business_value": "Reduces manual overhead in the acquisition workflow and improves consistency of bid quality through AI-assisted proposal generation.",
+
+      "component_link": "https://github.com/visualkirby/Upwork-Acquisition-Pipeline",
+
+      "files": [],
+
+      "tools": [
+        { "tool_label": "Google Apps Script", "tool_keyword": "google_apps_script" },
+        { "tool_label": "GPT-4o-mini", "tool_keyword": "gpt_4o_mini" }
+      ],
+
+      "skills": [
+        { "skill_label": "Automation", "skill_keyword": "automation", "weight": 0.4 },
+        { "skill_label": "API Integration", "skill_keyword": "api_integration", "weight": 0.3 },
+        { "skill_label": "Scripting", "skill_keyword": "scripting", "weight": 0.3 }
+      ]
+    },
+
+    {
+      "component_id": "COMP_UPWORK_PIPELINE_SQL",
+      "name": "BigQuery SQL Analysis Layer",
+      "component_type": "analytics_layer",
+      "deliverable_type": "analytical_queries",
+
+      "objective": "Execute 8 BigQuery SQL queries covering funnel analysis, keyword performance, tool market share, score distribution, session performance, proposal analysis, keyword intelligence, and job complexity.",
+      "business_value": "Transforms raw acquisition activity into structured insights that guide job targeting, proposal strategy, and resource allocation.",
+
+      "component_link": "https://github.com/visualkirby/Upwork-Acquisition-Pipeline",
+
+      "files": [],
+
+      "tools": [
+        { "tool_label": "BigQuery", "tool_keyword": "bigquery" },
+        { "tool_label": "SQL", "tool_keyword": "sql" }
+      ],
+
+      "skills": [
+        { "skill_label": "SQL", "skill_keyword": "sql", "weight": 0.5 },
+        { "skill_label": "Funnel Analysis", "skill_keyword": "funnel_analysis", "weight": 0.3 },
+        { "skill_label": "Business Insights", "skill_keyword": "business_insights", "weight": 0.2 }
+      ]
+    }
+
+  ]
+}
