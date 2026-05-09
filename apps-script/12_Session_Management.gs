@@ -161,28 +161,31 @@ function END_SESSION() {
     var pgMap         = getHeaderMap_(pgSheet);
     var pgStatusCol   = getCol_(pgMap, ["Proposal_Status"]);
     var pgSentDateCol = getCol_(pgMap, ["Proposal_Sent_Date"]);
+    var pgSkipDateCol = getCol_(pgMap, ["Proposal_Skip_Date"]);
     var pgConnectsCol = getCol_(pgMap, ["Total_Connects_Spent", "Connects_Required"]);
 
-    if (pgStatusCol && pgSentDateCol) {
+    if (pgStatusCol) {
       var pgData = pgSheet
         .getRange(2, 1, pgSheet.getLastRow() - 1, pgSheet.getLastColumn())
         .getValues();
 
       for (var i = 0; i < pgData.length; i++) {
-        var pgStatus   = String(pgData[i][pgStatusCol   - 1]).trim();
-        var pgSentDate = pgData[i][pgSentDateCol - 1];
+        var pgStatus   = String(pgData[i][pgStatusCol - 1]).trim();
+        var pgSentDate = pgSentDateCol ? pgData[i][pgSentDateCol - 1] : null;
+        var pgSkipDate = pgSkipDateCol ? pgData[i][pgSkipDateCol - 1] : null;
 
-        if (pgSentDate) {
+        if (pgStatus === "Sent" && pgSentDate) {
           var sentDateObj = new Date(pgSentDate);
           if (sentDateObj >= startTime && sentDateObj <= endTime) {
-            if (pgStatus === "Sent") {
-              proposalsSent++;
-              if (pgConnectsCol) {
-                connectsSpent += Number(pgData[i][pgConnectsCol - 1]) || 0;
-              }
-            } else if (pgStatus === "Skip") {
-              proposalsSkipped++;
+            proposalsSent++;
+            if (pgConnectsCol) {
+              connectsSpent += Number(pgData[i][pgConnectsCol - 1]) || 0;
             }
+          }
+        } else if (pgStatus === "Skip" && pgSkipDate) {
+          var skipDateObj = new Date(pgSkipDate);
+          if (skipDateObj >= startTime && skipDateObj <= endTime) {
+            proposalsSkipped++;
           }
         }
       }

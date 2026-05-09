@@ -195,9 +195,31 @@ function onEdit(e) {
     if (metricCol && valueCol && col === valueCol) {
       var metricLabel = sheet.getRange(row, metricCol).getValue();
 
+      if (String(metricLabel).trim() === "Connect_Returned") {
+        var retVal = sheet.getRange(row, valueCol).getValue();
+        var retOld = e.oldValue;
+        if (retVal !== "" && retVal !== null && (retOld === undefined || retOld === null || retOld === "")) {
+          var retLastRow    = sheet.getLastRow();
+          var retAllMetrics = sheet.getRange(2, metricCol, retLastRow - 1, 1).getValues();
+
+          for (var r = 0; r < retAllMetrics.length; r++) {
+            if (String(retAllMetrics[r][0]).trim() === "Total_Connects_Returned") {
+              var currentReturned = sheet.getRange(r + 2, valueCol).getValue();
+              sheet.getRange(r + 2, valueCol).setValue((Number(currentReturned) || 0) + Number(retVal));
+            }
+            if (String(retAllMetrics[r][0]).trim() === "Connect_Returned_Date") {
+              sheet.getRange(r + 2, valueCol).setValue(new Date());
+            }
+          }
+        }
+      }
+
       if (String(metricLabel).trim() === "Connect_Replenishment") {
         var newVal = sheet.getRange(row, valueCol).getValue();
-        if (newVal !== "" && newVal !== null) {
+        var oldVal = e.oldValue;
+        // Only accumulate when entering a fresh value into a blank cell.
+        // Editing an existing value would double-count the replenishment.
+        if (newVal !== "" && newVal !== null && (oldVal === undefined || oldVal === null || oldVal === "")) {
           var lastRow    = sheet.getLastRow();
           var allMetrics = sheet.getRange(2, metricCol, lastRow - 1, 1).getValues();
 
@@ -314,12 +336,24 @@ function onEdit(e) {
     // Proposal_Status = "Sent" -> write to Proposal_Tracker + Followup_Tracker
     var proposalStatusCol   = getCol_(map, ["Proposal_Status"]);
     var proposalSentDateCol = getCol_(map, ["Proposal_Sent_Date"]);
+    var proposalSkipDateCol = getCol_(map, ["Proposal_Skip_Date"]);
 
-    if (!proposalStatusCol || !proposalSentDateCol) return;
+    if (!proposalStatusCol) return;
     if (col !== proposalStatusCol) return;
 
     var proposalStatus = sheet.getRange(row, proposalStatusCol).getValue();
+
+    // Stamp skip date when status is set to Skip
+    if (proposalStatus === "Skip" && proposalSkipDateCol) {
+      var skipDateCell = sheet.getRange(row, proposalSkipDateCol);
+      if (skipDateCell.getValue() === "") {
+        skipDateCell.setValue(new Date());
+      }
+      return;
+    }
+
     if (proposalStatus !== "Sent") return;
+    if (!proposalSentDateCol) return;
 
     var proposalSentDateCell = sheet.getRange(row, proposalSentDateCol);
     if (proposalSentDateCell.getValue() !== "") return;
