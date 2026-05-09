@@ -14,6 +14,7 @@ function onOpen() {
     .addSeparator()
     .addItem("Analyze Job Workflow",     "ANALYZE_JOB_WORKFLOW")
     .addItem("Analyze Session Patterns", "ANALYZE_SESSION_PATTERNS")
+    .addItem("Analyze Bid Patterns",     "ANALYZE_BID_PATTERNS")
     .addItem("Run Job Classification",   "RUN_JOB_CLASSIFICATION")
     .addItem("Run AI Proposals",         "RUN_AI_PROPOSALS")
     .addSeparator()
