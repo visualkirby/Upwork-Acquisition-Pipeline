@@ -91,3 +91,40 @@ Thresholds are named vars at top of file for easy tuning.
 - Current Connect_Balance: 88 (row 16 of Connects_Helper)
 - Total_Connects_Used: 552; Total_Proposals_Sent: 49
 - 3 extreme-competition sends (Bid1=58/70/81) account for wasted connects
+
+---
+
+## Session: 2026-05-09 (continued)
+
+### What Was Done
+
+#### F4a header name confirmed and fixed (15_Formula_Fixes.gs)
+Column is `Connects_Affordability` (not `Affordability_Check`). Added as first lookup
+in `getCol_` call. Re-running `Apply Formula Fixes` will now apply all 4 fixes cleanly.
+
+#### Connect_Returned entry instructions provided
+Three rows to add to Connects_Helper: `Connect_Returned` (input field, leave blank),
+`Total_Connects_Returned` (start at 0), `Connect_Returned_Date` (auto-stamped).
+Enter the number of returned connects in `Connect_Returned`; trigger accumulates and dates.
+
+#### Commit c317e7f: Pipeline funnel replaces per-job workflow analyzer (07_Workflow_Analyzer.gs)
+`ANALYZE_JOB_WORKFLOW` rewritten as a 4-stage pipeline funnel:
+- Stage 1: Job_Discovery -- Discovery_Action (Move to Scoring / Review Later / Other)
+- Stage 2: Job_Scoring -- Final_Decision (APPLY / HOLD / SKIP)
+- Stage 3: Proposal_Generator -- Proposal_Status (Sent / Skip / Ready)
+- Stage 4: Proposal_Tracker -- Hired / Interview / Client_Replied (Y/N counts)
+- End-to-end conversion rates at every stage and overall
+
+`getWorkflowAnalysis_` (per-job AI breakdown) kept in file for future wiring.
+
+### Pipeline State as of 2026-05-09
+```
+Discovery:   350 logged  ->  173 Move to Scoring (49%)  |  177 Review Later (untapped)
+Scoring:     173 scored  ->  104 APPLY (60%)  |  46 SKIP (27%)  |  23 HOLD (13%)
+Proposals:   104 queued  ->   41 Sent (39%)   |  62 Skip (60%)  |   1 Ready
+Outcomes:     49 tracked ->    1 Hired (2%)   |   1 Interview    |   1 Reply
+Overall:     0.3%  (1 hire / 350 logged)
+```
+
+Key gap: 60% of APPLY jobs are being skipped in Proposal_Generator (no proposal written/sent).
+177 Review Later jobs are a re-evaluation pool that never reached scoring.
