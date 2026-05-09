@@ -18,6 +18,8 @@ function onOpen() {
     .addSeparator()
     .addItem("Snapshot Month End",     "SNAPSHOT_MONTH_END")
     .addSeparator()
+    .addItem("Apply Formula Fixes",    "APPLY_FORMULA_FIXES")
+    .addSeparator()
     .addItem("Setup API Key",          "SETUP_API_KEY")
     .addToUi();
 }
