@@ -23,5 +23,6 @@ function onOpen() {
     .addItem("Apply Formula Fixes",    "APPLY_FORMULA_FIXES")
     .addSeparator()
     .addItem("Setup API Key",          "SETUP_API_KEY")
+    .addItem("Check API Key",          "CHECK_API_KEY")
     .addToUi();
 }

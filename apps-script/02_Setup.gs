@@ -13,19 +13,33 @@
  * ============================================================
  */
 function SETUP_API_KEY() {
-  var key = "";
+  var ui       = SpreadsheetApp.getUi();
+  var response = ui.prompt("Setup API Key", "Paste your OpenAI API key below:", ui.ButtonSet.OK_CANCEL);
 
-  if (key === "paste-your-openai-key-here" || key.trim() === "") {
-    SpreadsheetApp.getUi().alert(
-      "No key found.\n\nPaste your OpenAI API key between the quotes in SETUP_API_KEY, then run again."
-    );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  var key = response.getResponseText().trim();
+
+  if (!key) {
+    ui.alert("No key entered. Setup cancelled.");
     return;
   }
 
   PropertiesService.getScriptProperties().setProperty("OPENAI_API_KEY", key);
-  SpreadsheetApp.getUi().alert(
-    "✓ API key stored securely.\n\nNow delete your key from the SETUP_API_KEY function and save the script."
-  );
+  ui.alert("API key stored. You do not need to run this again unless you rotate your key.");
+}
+
+
+function CHECK_API_KEY() {
+  var ui     = SpreadsheetApp.getUi();
+  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+
+  if (!apiKey) {
+    ui.alert("No API key found. Run System Tools > Setup API Key.");
+    return;
+  }
+
+  ui.alert("API key is set.\nLength: " + apiKey.length + " chars\nPrefix: " + apiKey.substring(0, 8) + "...");
 }
 
 
