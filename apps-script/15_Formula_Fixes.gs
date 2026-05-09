@@ -38,7 +38,7 @@ function APPLY_FORMULA_FIXES() {
   // Rows 3+ were using $B$14 (Total_Connects_Used) by mistake.
   // Fix: set the correct formula on row 2 and copy down.
   // ----------------------------------------------------------
-  var affordCol = getCol_(jsMap, ["Affordability_Check", "Affordability", "Can_Afford"]);
+  var affordCol = getCol_(jsMap, ["Connects_Affordability", "Affordability_Check", "Affordability", "Can_Afford"]);
   if (affordCol && jsLast >= 2) {
     var affordSrc = jsSheet.getRange(2, affordCol);
     affordSrc.setFormula('=IF(P2="","",IF(P2<=Connects_Helper!$B$16,"Can Afford","Cannot Afford"))');
@@ -50,7 +50,7 @@ function APPLY_FORMULA_FIXES() {
     }
     applied.push("F4a: Affordability_Check uses Current_Connect_Balance ($B$16) in all rows");
   } else {
-    skipped.push("F4a: column not found (tried: Affordability_Check, Affordability, Can_Afford)");
+    skipped.push("F4a: column not found (tried: Connects_Affordability, Affordability_Check, Affordability, Can_Afford)");
   }
 
   // ----------------------------------------------------------
