@@ -13,7 +13,7 @@
  */
 function generateAIProposal_(jobTitle, description, toolDetected,
                                jobType, templateId, hookVersion, ctaVersion) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
   if (!apiKey) return "API key not set. Run System Tools > Setup API Key first.";
 
   var ss             = SpreadsheetApp.getActiveSpreadsheet();
@@ -123,7 +123,7 @@ var PORTFOLIO_CONTEXT_ =
 
 
 function generateAiProposal_(jobTitle, description, toolDetected, jobType, proposalCount, budget, keywordSearch) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
   if (!apiKey) return "API key not set. Run System Tools > Setup API Key.";
 
   var competitionNote = proposalCount > 30

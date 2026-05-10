@@ -25,14 +25,14 @@ function SETUP_API_KEY() {
     return;
   }
 
-  PropertiesService.getScriptProperties().setProperty("OPENAI_API_KEY", key);
+  PropertiesService.getScriptProperties().setProperty("UPWORK_OPENAI_API_KEY", key);
   ui.alert("API key stored. You do not need to run this again unless you rotate your key.");
 }
 
 
 function CHECK_API_KEY() {
   var ui     = SpreadsheetApp.getUi();
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   if (!apiKey) {
     ui.alert("No API key found. Run System Tools > Setup API Key.");
@@ -45,7 +45,7 @@ function CHECK_API_KEY() {
 
 function TEST_JOB_TYPE_API() {
   var ui     = SpreadsheetApp.getUi();
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   if (!apiKey) {
     ui.alert("No API key found. Run Setup API Key first.");

@@ -6,7 +6,7 @@
  * ============================================================
  */
 function getQuickNotes_(description) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   if (!apiKey) {
     return getQuickNotesRegex_(description);

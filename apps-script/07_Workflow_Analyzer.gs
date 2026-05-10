@@ -198,7 +198,7 @@ function ANALYZE_JOB_WORKFLOW() {
 // ---- per-job AI analysis (kept for future wiring) -----------
 
 function getWorkflowAnalysis_(jobTitle, description) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   if (!apiKey) {
     return {
