@@ -8,7 +8,7 @@
  * ============================================================
  */
 function getJobType_(description, jobTitle) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   function regexFallback_() {
     var t = (jobTitle + " " + description).toLowerCase();

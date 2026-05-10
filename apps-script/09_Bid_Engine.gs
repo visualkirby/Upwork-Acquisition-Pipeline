@@ -62,7 +62,7 @@ function colorDuplicateJobLinks() {
 
 function getBidRecommendation_(jobTitle, baseConnects, proposalCount,
                                 totalScore, bid1, bid2, bid3) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   if (!apiKey) {
     return "API key not set. Run System Tools > Setup API Key first.";
