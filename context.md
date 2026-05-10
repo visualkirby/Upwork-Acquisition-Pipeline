@@ -128,3 +128,55 @@ Overall:     0.3%  (1 hire / 350 logged)
 
 Key gap: 60% of APPLY jobs are being skipped in Proposal_Generator (no proposal written/sent).
 177 Review Later jobs are a re-evaluation pool that never reached scoring.
+
+---
+
+## Session: 2026-05-09 (continued 2)
+
+### What Was Done
+
+#### All 4 formula fixes confirmed applied
+F4a (Connects_Affordability $B$16), F4b (Final_Decision gate), F7 (Tool_Detected),
+F9 (Portfolio_Project) all reported Applied. Pipeline is now on correct formula logic.
+
+#### API key property name fixed across all modules (commits 1a2fda2, 4bbf2de)
+- SETUP_API_KEY rewritten to use ui.prompt() dialog -- no more code editing required
+- CHECK_API_KEY added to menu for status verification
+- Root cause: all modules were reading `OPENAI_API_KEY` but property was stored as
+  `UPWORK_OPENAI_API_KEY`. Fixed in 6 files: 02_Setup, 06_Quick_Notes,
+  07_Workflow_Analyzer, 09_Bid_Engine, 10_Proposal_Generator, 11_Job_Classifier
+
+#### Skip rate root cause diagnosed (no code change yet)
+Cross-referenced formula export + sheet structure against Proposal_Generator behavior.
+Three compounding causes:
+1. Final_Decision APPLY gate has no competition cap -- high Proposal_Count jobs
+   (40-50+) pass scoring and land in Proposal_Generator, then get manually skipped
+2. Current_Age_Days in Proposal_Generator samples show 50-65 days -- jobs are ancient
+   by the time proposals are written; user correctly skips them
+3. FILTER formula accumulates all-time APPLY jobs with no expiry mechanism
+
+Proposed fix (not yet built): add F10 to APPLY_FORMULA_FIXES -- two new gates in
+Final_Decision: `J2<=35` (Proposal_Count cap) and `AL2<=21` (age cap in days).
+This would auto-remove stale rows from Proposal_Generator via the live FILTER.
+
+#### SaaS architecture planned -- full doc saved locally
+File: `C:\Users\kirby\OneDrive\Desktop\ClaudeCodeTest\upwork-saas-poc-plan.txt`
+
+Key decisions made:
+- Web app + smart paste as POC; mobile (Expo share extension) as Phase 3
+- FastAPI + Supabase + React stack
+- Scoring thresholds fully configurable from UI (preset profiles + individual overrides)
+- Browser extension ruled out; OS share sheet is better UX for mobile
+- All formula logic moves to Python backend services
+- FILTER pipeline replaced by event-driven row writes
+
+Open decisions (in plan doc): pricing, product name, smart paste mode (URL vs text),
+portfolio matching approach, demand validation channel, build vs. hire.
+
+This product is the third Benchline Analytics SaaS product (was TBD on checklist).
+Full plan + screen list saved to `upwork-saas-poc-plan.txt` in ClaudeCodeTest.
+
+### What Is Next
+- Build F10 formula fix (competition + age gates) for Final_Decision
+- Tackle SaaS product planning next session (add to May checklist as third product)
+- Re-evaluate 177 Review Later jobs as pipeline refill pool
