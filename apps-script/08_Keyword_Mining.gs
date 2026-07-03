@@ -2,8 +2,13 @@
  * ============================================================
  * 8. KEYWORD MINING
  * Mines Job_Discovery titles and descriptions to surface new
- * Tool + Business_Area + Intent triplets above MIN_FREQUENCY.
- * Purges "Drop" keywords from Keyword_Search_List first.
+ * Tool + Business_Area + Intent triplets above the Library's
+ * minimum mining frequency. Purges "Drop" keywords from
+ * Keyword_Search_List first.
+ *
+ * The taxonomy + mining algorithm (FFLib.mineTriplets) lives in
+ * the Apps Script Library. This file is the UI + sheet I/O
+ * wrapper that calls it.
  * ============================================================
  */
 function MINE_KEYWORDS() {
@@ -97,26 +102,6 @@ function MINE_KEYWORDS() {
     }
   }
 
-  var TOOLS = [
-    "Excel", "Power BI", "Looker Studio", "Tableau", "SQL",
-    "Google Sheets", "Python", "BigQuery", "Power Query",
-    "Google Analytics", "R Studio", "Snowflake", "dbt"
-  ];
-
-  var BUSINESS_AREAS = [
-    "Sales", "HR", "Marketing", "Operations", "Finance",
-    "Inventory", "Revenue", "Retail", "Healthcare", "Logistics",
-    "Ecommerce", "Supply Chain", "Construction", "Real Estate",
-    "Hospitality", "Procurement", "Manufacturing"
-  ];
-
-  var INTENTS = [
-    "Dashboard", "Reporting Dashboard", "Dashboard Developer",
-    "Dashboard Build", "Dashboard Creation", "Automation",
-    "Data Analysis", "Visualization", "Pipeline", "Integration",
-    "KPI Dashboard", "Analytics Dashboard"
-  ];
-
   var discLastRow = discoverySheet.getLastRow();
   if (discLastRow < 2) {
     ui.alert("Job_Discovery has no data rows to mine.");
@@ -130,55 +115,18 @@ function MINE_KEYWORDS() {
     .getRange(2, 1, discLastRow - 1, discoverySheet.getLastColumn())
     .getValues();
 
-  var tripletCounts = {};
-
-  for (var r = 0; r < discData.length; r++) {
-    var title    = discTitleCol ? String(discData[r][discTitleCol - 1]).toLowerCase() : "";
-    var desc     = discDescCol  ? String(discData[r][discDescCol  - 1]).toLowerCase() : "";
-    var combined = title + " " + desc;
-
-    var foundTools = TOOLS.filter(function (t) {
-      return combined.indexOf(t.toLowerCase()) !== -1;
-    });
-    var foundBiz = BUSINESS_AREAS.filter(function (b) {
-      return combined.indexOf(b.toLowerCase()) !== -1;
-    });
-    var foundIntents = INTENTS.filter(function (n) {
-      return combined.indexOf(n.toLowerCase()) !== -1;
-    });
-
-    if (foundTools.length === 0) foundTools = ["Other"];
-
-    foundTools.forEach(function (tool) {
-      foundBiz.forEach(function (biz) {
-        foundIntents.forEach(function (intent) {
-          var key = tool.toLowerCase() + "|" + biz.toLowerCase() + "|" + intent.toLowerCase();
-          tripletCounts[key] = (tripletCounts[key] || 0) + 1;
-        });
-      });
-    });
-  }
-
-  var MIN_FREQUENCY = 2;
-  var candidates    = [];
-
-  Object.keys(tripletCounts).forEach(function (key) {
-    if (tripletCounts[key] < MIN_FREQUENCY) return;
-    if (existingKeys[key]) return;
-
-    var parts  = key.split("|");
-    var tool   = TOOLS.find(function (t) { return t.toLowerCase() === parts[0]; }) || parts[0];
-    var biz    = BUSINESS_AREAS.find(function (b) { return b.toLowerCase() === parts[1]; }) || parts[1];
-    var intent = INTENTS.find(function (n) { return n.toLowerCase() === parts[2]; }) || parts[2];
-
-    candidates.push({ tool: tool, biz: biz, intent: intent, freq: tripletCounts[key] });
+  var discoveryRows = discData.map(function (row) {
+    return {
+      title:       discTitleCol ? String(row[discTitleCol - 1]) : "",
+      description: discDescCol  ? String(row[discDescCol  - 1]) : ""
+    };
   });
 
-  candidates.sort(function (a, b) { return b.freq - a.freq; });
+  var candidates = FFLib.mineTriplets(discoveryRows, existingKeys);
 
   if (candidates.length === 0) {
     ui.alert(
-      "No new combinations found above the minimum frequency of " + MIN_FREQUENCY + ".\n" +
+      "No new combinations found above the minimum mining frequency.\n" +
       "All qualifying combinations are already in Keyword_Search_List."
     );
     return;

@@ -54,50 +54,10 @@ function wizard_validateApiKey(key) {
 function wizard_analyzeNiche(description, apiKey) {
   var key = apiKey || PropertiesService.getScriptProperties().getProperty('UPWORK_OPENAI_API_KEY');
   if (!key) return { ok: false, message: 'API key not found. Complete Step 2 first.' };
-
-  var prompt =
-    'You are helping a freelancer set up a job-bidding pipeline tool on Upwork. ' +
-    'Based on their specialty description below, return a JSON object with exactly these three keys: ' +
-    '"tools": a comma-separated string of their primary tools or software (max 8 tools, most relevant first), ' +
-    '"background": a single professional sentence (under 25 words) describing their experience and focus for use in AI proposals, ' +
-    '"keywords": an array of 10-14 Upwork search keyword strings relevant to their niche ' +
-    '(format each as "[Tool] [Domain] [Type]" or "[Domain] [Type]", e.g. "Power BI Sales Dashboard", "Logistics Data Analysis"). ' +
-    'Return only valid JSON. No explanation. No markdown. ' +
-    'Specialty description: ' + description.substring(0, 500);
-
-  try {
-    var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'Authorization': 'Bearer ' + key },
-      payload: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 400,
-        temperature: 0.3
-      }),
-      muteHttpExceptions: true
-    });
-
-    var data = JSON.parse(response.getContentText());
-    if (data.error) return { ok: false, message: 'API error: ' + data.error.message };
-
-    var content = data.choices && data.choices[0]
-      ? data.choices[0].message.content.trim()
-      : '';
-
-    content = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-
-    var parsed = JSON.parse(content);
-    return {
-      ok:         true,
-      tools:      parsed.tools      || '',
-      background: parsed.background || '',
-      keywords:   Array.isArray(parsed.keywords) ? parsed.keywords : []
-    };
-  } catch (e) {
-    return { ok: false, message: 'Could not parse AI response. Fill in manually.' };
-  }
+  // Sidebar HTML can only call top-level bound-script functions via
+  // google.script.run, not Library functions directly -- this stays
+  // as the entry point and delegates the actual prompt/parsing.
+  return FFLib.analyzeNiche(description, key);
 }
 
 
@@ -331,95 +291,44 @@ function registerEditTrigger_() {
 
 
 // ---- Formula helpers -----------------------------------------------------------
+//
+// build*_ functions are pure -- headers/portfolioMap in, formula-string out, no
+// SpreadsheetApp access. apply*_ functions are the sheet-I/O wrappers that call
+// them and write the results. This split is what lets the build*_ functions move
+// into the Apps Script Library later while apply*_ stays in the thin client, and
+// it's also what REPAIR_FORMULAS() (15_Formula_Fixes.gs) reuses to re-apply
+// formulas to an already-created sheet, not just at creation time.
 
 function applyJobScoringFormulas_(sheet, headers) {
-  var connReqIdx  = headers.indexOf('Connects_Required');
-  var connAffIdx  = headers.indexOf('Connects_Affordability');
-  var toolScoIdx  = headers.indexOf('Tool_Score');
-  var expScoIdx   = headers.indexOf('Experience_Score');
-  var totScoIdx   = headers.indexOf('Total_Score');
-  var finalDecIdx = headers.indexOf('Final_Decision');
-
-  if (connAffIdx >= 0 && connReqIdx >= 0) {
-    var crL = colLetter_(connReqIdx + 1);
-    sheet.getRange(2, connAffIdx + 1).setFormula(
-      '=IF(' + crL + '2="","",IF(' + crL + '2<=Connects_Helper!$B$2,"Can Afford","Cannot Afford"))'
-    );
+  var formulas = FFLib.buildJobScoringFormulas(headers);
+  if (formulas.connectsAffordabilityFormula) {
+    sheet.getRange(2, formulas.connectsAffordabilityCol).setFormula(formulas.connectsAffordabilityFormula);
   }
-
-  if (finalDecIdx >= 0 && totScoIdx >= 0 && connAffIdx >= 0 && toolScoIdx >= 0 && expScoIdx >= 0 && connReqIdx >= 0) {
-    var totL  = colLetter_(totScoIdx + 1);
-    var affL  = colLetter_(connAffIdx + 1);
-    var toolL = colLetter_(toolScoIdx + 1);
-    var expL  = colLetter_(expScoIdx + 1);
-    var crL   = colLetter_(connReqIdx + 1);
-    sheet.getRange(2, finalDecIdx + 1).setFormula(
-      '=IF(' + totL + '2="","",IF(' + affL + '2="Cannot Afford","SKIP",' +
-      'IFS(' +
-        'AND(' +
-          totL  + '2>=VLOOKUP("Apply_Min_Score",Settings!$A:$B,2,0),' +
-          toolL + '2>=VLOOKUP("Apply_Min_Tool_Score",Settings!$A:$B,2,0),' +
-          expL  + '2>=VLOOKUP("Apply_Min_Exp_Score",Settings!$A:$B,2,0),' +
-          crL   + '2<=VLOOKUP("Apply_Max_Connects",Settings!$A:$B,2,0)' +
-        '),"APPLY",' +
-        'AND(' +
-          totL + '2>=VLOOKUP("Hold_Min_Score",Settings!$A:$B,2,0),' +
-          crL  + '2<=VLOOKUP("Hold_Max_Connects",Settings!$A:$B,2,0)' +
-        '),"HOLD",' +
-        'TRUE,"SKIP"' +
-      ')))'
-    );
+  if (formulas.finalDecisionFormula) {
+    sheet.getRange(2, formulas.finalDecisionCol).setFormula(formulas.finalDecisionFormula);
   }
 }
 
 function applyProposalGeneratorFormulas_(sheet, headers) {
-  var jobTitleIdx  = headers.indexOf('Job_Title');
-  var descIdx      = headers.indexOf('Description');
-  var toolDetIdx   = headers.indexOf('Tool_Detected');
-  var portfolioIdx = headers.indexOf('Portfolio_Project');
+  var portfolioMap = getPortfolioMapFromSettings_();
+  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, portfolioMap);
 
-  if (jobTitleIdx < 0 || descIdx < 0) return;
-
-  var jtL = colLetter_(jobTitleIdx + 1);
-  var dcL = colLetter_(descIdx + 1);
-
-  if (toolDetIdx >= 0) {
-    sheet.getRange(2, toolDetIdx + 1).setFormula(
-      '=IF(' + jtL + '2="","",IFS(' +
-        'ISNUMBER(SEARCH("power bi",'    + dcL + '2)),"Power BI",' +
-        'ISNUMBER(SEARCH("tableau",'     + dcL + '2)),"Tableau",' +
-        'ISNUMBER(SEARCH("looker",'      + dcL + '2)),"Looker Studio",' +
-        'ISNUMBER(SEARCH("google sheets",' + dcL + '2)),"Google Sheets",' +
-        'ISNUMBER(SEARCH("excel",'       + dcL + '2)),"Excel",' +
-        'ISNUMBER(SEARCH("sql",'         + dcL + '2)),"SQL",' +
-        'ISNUMBER(SEARCH("python",'      + dcL + '2)),"Python",' +
-        'ISNUMBER(SEARCH("bigquery",'    + dcL + '2)),"BigQuery",' +
-        'ISNUMBER(SEARCH("dbt",'         + dcL + '2)),"dbt",' +
-        'ISNUMBER(SEARCH("snowflake",'   + dcL + '2)),"Snowflake",' +
-        'TRUE,"Unknown"' +
-      '))'
-    );
+  if (formulas.toolDetectedFormula) {
+    sheet.getRange(2, formulas.toolDetectedCol).setFormula(formulas.toolDetectedFormula);
   }
-
-  if (portfolioIdx >= 0) {
-    var formula = buildPortfolioFormula_(jtL, dcL);
-    sheet.getRange(2, portfolioIdx + 1).setFormula(formula);
+  if (formulas.portfolioProjectFormula) {
+    sheet.getRange(2, formulas.portfolioProjectCol).setFormula(formulas.portfolioProjectFormula);
   }
 }
 
-function buildPortfolioFormula_(jobTitleLetter, descLetter) {
-  var jtL = jobTitleLetter || 'B';
-  var dcL = descLetter     || 'D';
+function getPortfolioMapFromSettings_() {
+  var ss           = SpreadsheetApp.getActiveSpreadsheet();
+  var settings      = ss.getSheetByName('Settings');
+  var portfolioMap = {};
 
-  var ss       = SpreadsheetApp.getActiveSpreadsheet();
-  var settings = ss.getSheetByName('Settings');
-
-  if (!settings || settings.getLastRow() < 2) {
-    return '=IF(' + jtL + '2="","","Add portfolio projects via FreelanceFlow Setup")';
-  }
+  if (!settings || settings.getLastRow() < 2) return portfolioMap;
 
   var data = settings.getRange(2, 1, settings.getLastRow() - 1, 2).getValues();
-  var portfolioMap = {};
 
   for (var i = 0; i < data.length; i++) {
     var key = String(data[i][0]).trim();
@@ -435,41 +344,15 @@ function buildPortfolioFormula_(jobTitleLetter, descLetter) {
 
     var kwMatch = key.match(/^Portfolio_(\d+)_Keywords$/);
     if (kwMatch) {
-      var n = kwMatch[1];
-      portfolioMap[n] = portfolioMap[n] || { name: '', keywords: [] };
-      portfolioMap[n].keywords = val.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(function(k) { return k; });
+      var n2 = kwMatch[1];
+      portfolioMap[n2] = portfolioMap[n2] || { name: '', keywords: [] };
+      portfolioMap[n2].keywords = val.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(function(k) { return k; });
     }
   }
 
-  var clauses     = [];
-  var defaultName = '';
-  var pNums       = Object.keys(portfolioMap).sort();
-
-  for (var p = 0; p < pNums.length; p++) {
-    var proj = portfolioMap[pNums[p]];
-    if (!proj.name) continue;
-    if (!defaultName) defaultName = proj.name;
-    var safeName = proj.name.replace(/"/g, '""');
-    for (var k = 0; k < proj.keywords.length; k++) {
-      var kw = proj.keywords[k].replace(/"/g, '""');
-      if (kw) clauses.push('ISNUMBER(SEARCH("' + kw + '",' + dcL + '2)),"' + safeName + '"');
-    }
-  }
-
-  if (clauses.length === 0) {
-    return '=IF(' + jtL + '2="","","Add portfolio keyword mappings in Settings sheet")';
-  }
-
-  var safeDefault = (defaultName || 'Portfolio Project').replace(/"/g, '""');
-  return '=IF(' + jtL + '2="","",IFS(' + clauses.join(',') + ',TRUE,"' + safeDefault + '"))';
+  return portfolioMap;
 }
 
-function colLetter_(n) {
-  var s = '';
-  while (n > 0) {
-    n--;
-    s = String.fromCharCode(65 + (n % 26)) + s;
-    n = Math.floor(n / 26);
-  }
-  return s;
-}
+// buildPortfolioFormula_ and colLetter_ moved to the Apps Script
+// Library (private helpers used internally by FFLib.buildProposalGeneratorFormulas
+// and FFLib.buildJobScoringFormulas) -- nothing in the client calls them directly.

@@ -44,11 +44,12 @@ function CHECK_API_KEY() {
 
 
 function TEST_JOB_TYPE_API() {
-  var ui     = SpreadsheetApp.getUi();
-  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
-
-  if (!apiKey) {
-    ui.alert("No API key found. Run Setup API Key first.");
+  var ui = SpreadsheetApp.getUi();
+  var apiKey;
+  try {
+    apiKey = getApiKey_();
+  } catch (err) {
+    ui.alert(err.message);
     return;
   }
 
@@ -56,10 +57,17 @@ function TEST_JOB_TYPE_API() {
 
   var testDesc  = "We are looking for a skilled developer to build a new Power BI dashboard tracking sales KPIs.";
   var testTitle = "Power BI Dashboard Developer";
-  var result    = getJobType_(testDesc, testTitle);
+  var result    = FFLib.getJobType(testDesc, testTitle, apiKey);
 
   ui.alert("Test classification result: \"" + result + "\"\n\n" +
     (result ? "API call working correctly." : "API call returned empty -- check key or quota."));
+}
+
+
+function getApiKey_() {
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+  if (!apiKey) throw new Error("API key not set. Run FreelanceFlow Setup or Setup API Key first.");
+  return apiKey;
 }
 
 

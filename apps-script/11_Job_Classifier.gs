@@ -2,65 +2,12 @@
  * ============================================================
  * 11. JOB CLASSIFIER & BATCH PROPOSALS
  *
- * getJobType_: classifies a job into one of four categories
+ * Classification logic (FFLib.getJobType) and proposal generation
+ * (FFLib.generateAIProposal) live in the Apps Script Library.
  * RUN_JOB_CLASSIFICATION: fills Job_Type column in Proposal_Generator
  * RUN_AI_PROPOSALS: batch-generates AI proposals for all unfilled rows
  * ============================================================
  */
-function getJobType_(description, jobTitle) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
-
-  function regexFallback_() {
-    var t = (jobTitle + " " + description).toLowerCase();
-    if (/fix|improve|update|modify|redesign|optimize|existing/.test(t)) return "Dashboard Fix";
-    if (/clean|spreadsheet|raw data|data cleaning|csv|excel file|export/.test(t)) return "Data to Dashboard";
-    if (/report|analysis|analytics(?! dashboard)|insight/.test(t) && !/dashboard/.test(t)) return "Reporting";
-    return "Dashboard Build";
-  }
-
-  if (!apiKey) return regexFallback_();
-
-  var prompt =
-    "Classify this Upwork job into exactly one of these four categories: " +
-    "Dashboard Build, Dashboard Fix, Data to Dashboard, Reporting. " +
-    "Dashboard Build = new dashboard needed from scratch. " +
-    "Dashboard Fix = existing dashboard needs fixing or improving. " +
-    "Data to Dashboard = raw data needs cleaning then turned into a dashboard. " +
-    "Reporting = data analysis or reporting without a dashboard. " +
-    "Reply with only the category name and nothing else. " +
-    "Job: " + jobTitle + ". " + description.substring(0, 800);
-
-  try {
-    var response = UrlFetchApp.fetch("https://api.openai.com/v1/chat/completions", {
-      method: "post",
-      contentType: "application/json",
-      headers: { "Authorization": "Bearer " + apiKey },
-      payload: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 10,
-        temperature: 0
-      }),
-      muteHttpExceptions: true
-    });
-
-    var parsed = JSON.parse(response.getContentText());
-    if (!parsed.choices || !parsed.choices[0]) return regexFallback_();
-
-    var text = parsed.choices[0].message.content.trim();
-
-    if (text.indexOf("Data to Dashboard") !== -1) return "Data to Dashboard";
-    if (text.indexOf("Dashboard Fix")     !== -1) return "Dashboard Fix";
-    if (text.indexOf("Dashboard Build")   !== -1) return "Dashboard Build";
-    if (text.indexOf("Reporting")         !== -1) return "Reporting";
-    return regexFallback_();
-
-  } catch (err) {
-    return regexFallback_();
-  }
-}
-
-
 function RUN_JOB_CLASSIFICATION() {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var ui    = SpreadsheetApp.getUi();
@@ -80,6 +27,8 @@ function RUN_JOB_CLASSIFICATION() {
     ui.alert("Required columns not found. Confirm Job_Title, Description, and Job_Type columns exist.");
     return;
   }
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
 
   var validTypes = ["Dashboard Build", "Dashboard Fix", "Data to Dashboard", "Reporting"];
   var lastRow    = sheet.getLastRow();
@@ -101,7 +50,7 @@ function RUN_JOB_CLASSIFICATION() {
 
     if (!desc && !title) { continue; }
 
-    var result = getJobType_(desc, title);
+    var result = FFLib.getJobType(desc, title, apiKey);
     sheet.getRange(r, jobTypeCol).setValue(result);
     filled++;
 
@@ -137,6 +86,19 @@ function RUN_AI_PROPOSALS() {
     return;
   }
 
+  var apiKey;
+  try {
+    apiKey = getApiKey_();
+  } catch (err) {
+    ui.alert(err.message);
+    return;
+  }
+  var settings       = getSettings_();
+  var journeyContext = FFLib.buildJourneyStage(settings);
+  var freelancerName = settings['Freelancer_Name'] || 'the freelancer';
+  var proposalTone   = settings['Proposal_Tone']   || 'Direct';
+  var portfolioAll   = settings['Portfolio_All']   || '';
+
   var lastRow = sheet.getLastRow();
   var data    = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   var count   = 0;
@@ -160,8 +122,9 @@ function RUN_AI_PROPOSALS() {
     var dataRow = i + 2;
     sheet.getRange(dataRow, aiPropCol).setValue("Drafting proposal...");
 
-    var result = generateAIProposal_(jobTitle, desc, tool, jobType,
-                                      tmplId || "T1", hookVer || "A", ctaVer || "A");
+    var template = lookupProposalTemplate_(tmplId || "T1", hookVer || "A", ctaVer || "A");
+    var result = FFLib.generateAIProposal(jobTitle, desc, tool, jobType, template,
+                                          apiKey, journeyContext, portfolioAll, proposalTone, freelancerName);
     sheet.getRange(dataRow, aiPropCol).setValue(result);
     count++;
 

@@ -62,7 +62,8 @@ function onEdit(e) {
         var quickNotesCol = getCol_(map, ["Quick_Notes"]);
         if (quickNotesCol) {
           sheet.getRange(row, quickNotesCol).setValue("Analyzing...");
-          var quickResult = getQuickNotes_(cleanedText || rawText);
+          var qnApiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+          var quickResult = FFLib.getQuickNotes(cleanedText || rawText, qnApiKey);
           sheet.getRange(row, quickNotesCol).setValue(quickResult);
         }
       }
@@ -132,7 +133,6 @@ function onEdit(e) {
         var jsKeywordCol2  = getCol_(jsMap2, ["Keyword_Search"]);
         var jsProposalCol2 = getCol_(jsMap2, ["Proposal_Count"]);
         var jsBudgetCol2   = getCol_(jsMap2, ["Budget"]);
-        var jsQuickCol2    = getCol_(jsMap2, ["Quick_Notes"]);
 
         var aiJobTitle      = jsTitleCol2    ? sheet.getRange(row, jsTitleCol2).getValue()    : "";
         var aiDescription   = jsDescCol2     ? sheet.getRange(row, jsDescCol2).getValue()     : "";
@@ -140,17 +140,9 @@ function onEdit(e) {
         var aiKeyword       = jsKeywordCol2  ? sheet.getRange(row, jsKeywordCol2).getValue()  : "";
         var aiProposalCount = jsProposalCol2 ? sheet.getRange(row, jsProposalCol2).getValue() : "";
         var aiBudget        = jsBudgetCol2   ? sheet.getRange(row, jsBudgetCol2).getValue()   : "";
-        var aiQuickNotes    = jsQuickCol2    ? sheet.getRange(row, jsQuickCol2).getValue()    : "";
 
-        var aiJobType = "Dashboard Build";
-        if (aiQuickNotes) {
-          var qn = String(aiQuickNotes).toLowerCase();
-          if (qn.indexOf("fix") !== -1 || qn.indexOf("update") !== -1 || qn.indexOf("improve") !== -1) {
-            aiJobType = "Dashboard Fix";
-          } else if (qn.indexOf("data") !== -1 && qn.indexOf("dashboard") === -1) {
-            aiJobType = "Data to Dashboard";
-          }
-        }
+        var jtApiKey  = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+        var aiJobType = FFLib.getJobType(aiDescription, aiJobTitle, jtApiKey);
 
         if (aiJobTitle && aiDescription) {
           var pgSheet = ss.getSheetByName("Proposal_Generator");
@@ -168,10 +160,20 @@ function onEdit(e) {
                 if (String(pgData[p][pgTitleCol2 - 1]).trim() === String(aiJobTitle).trim()) {
                   var pgRow = p + 2;
                   pgSheet.getRange(pgRow, pgAiCol2).setValue("Generating proposal...");
-                  var aiProposalText = generateAiProposal_(
-                    aiJobTitle, aiDescription, aiTool,
-                    aiJobType, aiProposalCount, aiBudget, aiKeyword
-                  );
+                  var aiProposalText;
+                  try {
+                    var autoApiKey          = getApiKey_();
+                    var autoSettings        = getSettings_();
+                    var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
+                    var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
+                    aiProposalText = FFLib.generateAiProposal(
+                      aiJobTitle, aiDescription, aiTool,
+                      aiJobType, aiProposalCount, aiBudget, aiKeyword,
+                      autoApiKey, autoPortfolioContext, autoFreelancerName
+                    );
+                  } catch (err) {
+                    aiProposalText = err.message;
+                  }
                   pgSheet.getRange(pgRow, pgAiCol2).setValue(aiProposalText);
                   break;
                 }
@@ -287,10 +289,21 @@ function onEdit(e) {
 
         if (recCol) {
           sheet.getRange(row, recCol).setValue("Analyzing...");
-          var recommendation = getBidRecommendation_(
-            titleVal, baseConVal, propCountVal,
-            totalScoreVal, bid1Val, bid2Val, bid3Val
-          );
+          var recommendation;
+          try {
+            var bidApiKey         = getApiKey_();
+            var bidSettings       = getSettings_();
+            var bidJourneyContext = FFLib.buildJourneyStage(bidSettings);
+            var bidNoBoostMaxProp  = parseInt(bidSettings['Apply_Max_Proposals']) || 35;
+            var bidNoBoostMinScore = parseFloat(bidSettings['Apply_Min_Score'])   || 0.60;
+            recommendation = FFLib.getBidRecommendation(
+              titleVal, baseConVal, propCountVal,
+              totalScoreVal, bid1Val, bid2Val, bid3Val,
+              bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore
+            );
+          } catch (err) {
+            recommendation = err.message;
+          }
           sheet.getRange(row, recCol).setValue(recommendation);
         }
       }
@@ -325,9 +338,22 @@ function onEdit(e) {
           var ctaVer  = pgCta  || "A";
 
           sheet.getRange(row, aiPropColPG).setValue("Drafting proposal...");
-          var aiProposal = generateAIProposal_(
-            pgTitle, pgDesc, pgTool, pgJobType, tmplId, hookVer, ctaVer
-          );
+          var aiProposal;
+          try {
+            var boostApiKey         = getApiKey_();
+            var boostSettings       = getSettings_();
+            var boostJourneyContext = FFLib.buildJourneyStage(boostSettings);
+            var boostTemplate       = lookupProposalTemplate_(tmplId, hookVer, ctaVer);
+            var boostFreelancerName = boostSettings['Freelancer_Name'] || 'the freelancer';
+            var boostProposalTone   = boostSettings['Proposal_Tone']   || 'Direct';
+            var boostPortfolioAll   = boostSettings['Portfolio_All']   || '';
+            aiProposal = FFLib.generateAIProposal(
+              pgTitle, pgDesc, pgTool, pgJobType, boostTemplate,
+              boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName
+            );
+          } catch (err) {
+            aiProposal = err.message;
+          }
           sheet.getRange(row, aiPropColPG).setValue(aiProposal);
         }
       }
