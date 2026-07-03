@@ -180,3 +180,34 @@ Full plan + screen list saved to `upwork-saas-poc-plan.txt` in ClaudeCodeTest.
 - Build F10 formula fix (competition + age gates) for Final_Decision
 - Tackle SaaS product planning next session (add to May checklist as third product)
 - Re-evaluate 177 Review Later jobs as pipeline refill pool
+
+---
+
+## Session: 2026-07-03
+
+### What Was Done
+
+**Discovered the git repo had drifted badly from the live product.** The real, actively-deployed source is `C:\Users\kirby\OneDrive\Desktop\ClaudeCodeTest\freelanceflow-template\` (clasp-connected to script ID `1bYZnJPfm5nqnfzFcZjhRym7HryuHdYP_uqjz75mko75EoOoUDx0sUAuK`) -- it has a full setup wizard (`00_Setup_Wizard.gs` + `SetupWizard.html`) that this repo's `apps-script/` never had, plus genericized/Settings-driven versions of 05, 09, 10, 12 that had diverged from what was committed here. Product has also been named **FreelanceFlow** (beat ProposalPilot/BidForge/AcquireIQ) and is launching at $47/$127 via Gumroad.
+
+**Split the Apps Script into a Library + thin client** (the actual work requested: customers who buy the template get a full copy of the bound script today, including every AI prompt and the wizard's formula-building mechanics -- the goal was to stop giving that away).
+
+1. Synced `apps-script/` to match the real template source; removed the stale pre-split monolith `upwork_acquisition_system.gs`; fixed README's dead link + wrong `apps_script/` directory name.
+2. Refactored every AI/config function to accept `apiKey`/`settings`/`journeyContext` as parameters instead of fetching internally (`PropertiesService`/`getSettings_()` calls moved to call sites) -- prerequisite for the Library split since a Library has its own separate property store.
+3. Extracted pure functions: `mineTriplets` (08, taxonomy + mining algorithm), `bucketBidPatterns`/`fmtBucketLine` (17, competition thresholds), and split `00_Setup_Wizard.gs`'s formula writers into pure `build*` functions (data in, formula-string out) vs. `apply*_` sheet-I/O wrappers.
+4. Created a new standalone Apps Script Library project ("FreelanceFlow-Library", script ID `1tfy21pviJ9oMStv7Ur2nHCxKt6USYO1SU3NWWHZJapbT7Ra_7OTEGk55`), pushed via clasp, cut as **version 1** (pinned, not dev/Head mode). Holds: `Lib_AIContext`, `Lib_QuickNotes`, `Lib_WorkflowAnalyzer`, `Lib_JobClassifier`, `Lib_BidEngine`, `Lib_ProposalGenerator`, `Lib_Mining`, `Lib_BidAnalysis`, `Lib_WizardFormulas`, `Lib_WizardAI`. **Important Apps Script detail learned**: trailing-underscore function names are private to a Library and cannot be called cross-project -- every function the client needs to call had to be renamed without the underscore (e.g. `getJourneyStage_` -> `buildJourneyStage`); purely-internal Library helpers (`buildPortfolioFormula_`, `colLetter_`, `getQuickNotesRegex_`) kept the underscore on purpose.
+5. Stripped the proprietary bodies out of the thin client, replaced every call site with `FFLib.*`. Verified via grep sweep -- zero leftover local references to any moved function, and every `FFLib.*` name matches an actual Library export.
+6. Added `appsscript.json` Library dependency (pinned to v1) to the template's manifest.
+7. Repurposed the previously-inert `15_Formula_Fixes.gs` into `REPAIR_FORMULAS()` (re-applies Library-built formulas + copies down to existing data rows -- for when a Library fix ships after a customer's sheet was already set up) and `SEND_DIAGNOSTIC_REPORT()` (customer-run, shows/emails current Settings + actual formula text to `support@benchlineanalytics.com`, confirmed correct). Both wired into the System Tools menu.
+8. Corrected a wrong assumption made mid-session: the Job_Scoring/Proposal_Generator scoring formulas were NOT converted to hidden Library-computed values, because they're already Settings-sheet-driven (Conservative/Standard/Aggressive profiles) as an intentional customer-tunable feature -- hiding them would have broken that.
+9. Repo now tracks both `apps-script/` (thin client) and a new `library/` folder (Library source) -- all committed and pushed (4 commits: sync baseline, the Library split, a placeholder-comment cleanup, and removing an unused empty `Lib_Helpers.gs`).
+
+**Set up live browser testing.** Added `.mcp.json` (Playwright MCP server) and a temporary `mcp__playwright__*` allow rule in `.claude/settings.local.json` for this session only -- reverted (moved to `deny`) at Session End per standing instruction. User is restarting Claude Code now to pick up the new `.mcp.json` (a session that predates a `.mcp.json` file doesn't discover it via `/mcp` alone).
+
+**Built a full test plan for the live "fresh copy" verification (Task 8, not yet executed):** a test persona ("Maria Chen", bookkeeper/QuickBooks niche -- deliberately different from Sawandi's own) with exact Setup Wizard inputs and pre-computed expected Settings values under the Aggressive profile; 4 test job rows (Job_Scoring) chosen for full Final_Decision branch coverage (APPLY, HOLD, SKIP-via-low-score, SKIP-via-Cannot-Afford) with expected Tool_Detected/Portfolio_Project outcomes; a planned bug-injection/fix/repair cycle (flip `<=` to `>=` in the Final_Decision connects comparison in a Library v2, observe Job A flip from APPLY to SKIP, fix in v3, confirm REPAIR_FORMULAS restores APPLY) to test the whole diagnostic/repair loop end-to-end.
+
+### What Is Next
+- User restarting Claude Code, will run `/mcp` again to connect the Playwright server
+- Once connected: execute the fresh-copy test plan (Phase 1 Setup Wizard with Maria Chen persona -> Phase 2 four test job rows -> Phase 3 Send Diagnostic Report) and report back
+- Once Phase 1-3 pass: Claude pushes the intentional Library v2 bug, user observes the break, Claude pushes the v3 fix, user runs Repair Formulas to confirm
+- Final step of Task 8: open the fresh copy's Apps Script editor and manually confirm no proprietary logic is visible (only `FFLib.*` calls), and confirm the copy owner cannot open the Library project itself
+- Loose end: leftover unused `library/Lib_Helpers.gs` already removed this session (done, no longer open)
