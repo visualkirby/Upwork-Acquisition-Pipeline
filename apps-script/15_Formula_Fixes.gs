@@ -74,7 +74,6 @@ function copyRowDown_(sheet, cols) {
 }
 
 
-// Update this before shipping to customers -- see context.md.
 var SUPPORT_EMAIL_ = 'support@benchlineanalytics.com';
 
 function SEND_DIAGNOSTIC_REPORT() {
