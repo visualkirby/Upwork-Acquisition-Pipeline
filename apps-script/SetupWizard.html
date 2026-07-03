@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wizard { padding: 16px; }
+
+.header { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 18px; font-weight: 700; color: #05467c; }
+.tagline { font-size: 11px; color: #888; margin-top: 2px; }
+
+.dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #ddd; }
+.dot.active { background: #03a6a5; }
+.dot.done { background: #05467c; }
+
+.step { display: none; }
+.step.active { display: block; }
+
+.step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
+.step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
+
+label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; margin-top: 12px; }
+label.sub { font-weight: 400; color: #555; margin-top: 6px; }
+input[type=text], input[type=number], input[type=password], textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+input:focus, textarea:focus { border-color: #03a6a5; }
+textarea { resize: vertical; min-height: 70px; }
+
+.radio-group { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.radio-opt { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; cursor: pointer; }
+.radio-opt:hover { border-color: #03a6a5; background: #f5fdfd; }
+.radio-opt input[type=radio] { margin-top: 3px; accent-color: #03a6a5; flex-shrink: 0; }
+.radio-label strong { display: block; font-size: 13px; }
+.radio-label span { color: #777; font-size: 11px; line-height: 1.4; }
+
+.port-row { padding: 10px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fafafa; margin-bottom: 8px; }
+.port-num { font-size: 11px; font-weight: 700; color: #03a6a5; margin-bottom: 6px; }
+
+.ai-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-top: 10px; }
+.ai-box-title { font-size: 11px; font-weight: 700; color: #03a6a5; margin-bottom: 8px; }
+
+.divider { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
+.divider hr { flex: 1; border: none; border-top: 1px solid #e0e0e0; }
+.divider span { font-size: 11px; color: #999; white-space: nowrap; }
+
+.btn-row { display: flex; gap: 8px; margin-top: 18px; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-back { background: #f0f0f0; color: #444; }
+.btn-back:hover { background: #e0e0e0; }
+.btn-next { background: #03a6a5; color: #fff; flex: 1; }
+.btn-next:hover { background: #028888; }
+.btn-next:disabled { background: #bbb; cursor: not-allowed; }
+.btn-ai { background: #05467c; color: #fff; font-size: 12px; width: 100%; margin-top: 8px; }
+.btn-ai:hover { background: #033a6a; }
+.btn-ai:disabled { background: #bbb; cursor: not-allowed; }
+.btn-skip { background: none; border: none; color: #03a6a5; font-size: 12px; cursor: pointer; text-decoration: underline; display: block; text-align: center; margin-top: 6px; }
+.btn-skip:hover { color: #028888; }
+.btn-add { background: none; border: 1px dashed #03a6a5; color: #03a6a5; font-size: 12px; padding: 6px; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 4px; }
+.btn-add:hover { background: #f0fafa; }
+.btn-init { background: #05467c; color: #fff; flex: 1; font-size: 14px; }
+.btn-init:hover { background: #033a6a; }
+.btn-init:disabled { background: #bbb; cursor: not-allowed; }
+
+.status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.ok      { background: #e8f5e9; color: #2e7d32; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+
+.review-box { background: #f5f9fc; border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.8; margin-bottom: 12px; }
+
+.success { text-align: center; padding: 16px 0; }
+.success-icon { font-size: 36px; margin-bottom: 10px; }
+.success-title { font-size: 16px; font-weight: 700; color: #05467c; margin-bottom: 8px; }
+.success-msg { font-size: 12px; color: #555; line-height: 1.6; }
+.next-steps { text-align: left; margin-top: 14px; font-size: 12px; }
+.next-steps ol { padding-left: 18px; }
+.next-steps li { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wizard">
+
+  <div class="header">
+    <div class="logo">FreelanceFlow</div>
+    <div class="tagline">Upwork Bidding Pipeline</div>
+  </div>
+
+  <div class="dots">
+    <div class="dot active" id="d1"></div>
+    <div class="dot" id="d2"></div>
+    <div class="dot" id="d3"></div>
+    <div class="dot" id="d4"></div>
+    <div class="dot" id="d5"></div>
+    <div class="dot" id="d6"></div>
+    <div class="dot" id="d7"></div>
+  </div>
+
+  <!-- Step 1: Welcome -->
+  <div class="step active" id="step-1">
+    <div class="step-title">Welcome to FreelanceFlow</div>
+    <div class="step-desc">
+      This wizard sets up your personal Upwork bidding pipeline in about 5 minutes.<br><br>
+      <strong>You will need:</strong><br>
+      &bull; An OpenAI API key (platform.openai.com)<br>
+      &bull; Your current Upwork connect balance<br>
+      &bull; Names of 2&ndash;3 portfolio projects
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-next" onclick="go(2)">Get Started</button>
+    </div>
+  </div>
+
+  <!-- Step 2: API Key -->
+  <div class="step" id="step-2">
+    <div class="step-title">Step 2 of 7: API Key</div>
+    <div class="step-desc">
+      FreelanceFlow uses GPT-4o-mini to analyze jobs and write proposals.<br><br>
+      Get your key: <strong>platform.openai.com</strong> &rsaquo; API Keys &rsaquo; Create new secret key
+    </div>
+    <label>Paste your OpenAI API key:</label>
+    <input type="password" id="api-key" placeholder="sk-..." oninput="clearEl('api-status')">
+    <div id="api-status"></div>
+    <div class="btn-row">
+      <button class="btn btn-back" onclick="go(1)">Back</button>
+      <button class="btn btn-next" id="btn-validate" onclick="validateKey()">Validate &amp; Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Specialty -->
+  <div class="step" id="step-3">
+    <div class="step-title">Step 3 of 7: Your Specialty</div>
+    <div class="step-desc">Describe your niche and let AI suggest your tools, keywords, and background. Or skip and fill everything manually.</div>
+
+    <label>Describe what you do and who you work with:</label>
+    <textarea id="niche-desc" placeholder="e.g. I build logistics and supply chain dashboards for 3PL companies using Power BI and Excel. I also do inventory optimization reporting for e-commerce brands."></textarea>
+
+    <button class="btn btn-ai" id="btn-suggest" onclick="suggestSetup()">Suggest My Setup with AI</button>
+    <button class="btn-skip" onclick="showManualSpecialty()">Skip &mdash; I'll fill in manually</button>
+
+    <div id="specialty-fields" style="display:none;">
+      <div class="divider"><hr><span>Review &amp; edit your setup</span><hr></div>
+      <label>Primary tools (comma-separated):</label>
+      <input type="text" id="primary-tools" placeholder="e.g. Power BI, Excel, SQL, Tableau">
+      <label>Professional background (1 sentence for proposals):</label>
+      <input type="text" id="background" placeholder="e.g. Data analyst specializing in logistics reporting; Power BI and SQL focus.">
+      <label>Starter keywords (comma-separated &mdash; added to your search list):</label>
+      <textarea id="starter-kw" style="min-height:56px;" placeholder="e.g. Power BI Dashboard, Logistics Data Analysis, Supply Chain Reporting"></textarea>
+    </div>
+
+    <div id="specialty-status"></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn btn-back" onclick="go(2)">Back</button>
+      <button class="btn btn-next" id="btn-spec-next" onclick="saveSpecialty()" style="display:none;">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 4: Profile -->
+  <div class="step" id="step-4">
+    <div class="step-title">Step 4 of 7: Your Profile</div>
+    <div class="step-desc">Used to personalize your AI proposals and track your Upwork standing.</div>
+
+    <label>Your name (as it appears on Upwork):</label>
+    <input type="text" id="freelancer-name" placeholder="e.g. Alex Thompson">
+    <label>Current Upwork connect balance:</label>
+    <input type="number" id="connect-balance" placeholder="e.g. 120" min="0">
+    <label>Contracts completed:</label>
+    <input type="number" id="contracts" placeholder="0" min="0">
+    <label>Reviews count:</label>
+    <input type="number" id="reviews" placeholder="0" min="0">
+    <label>Job Success Score (%):</label>
+    <input type="number" id="jss" placeholder="0" min="0" max="100">
+
+    <div class="btn-row">
+      <button class="btn btn-back" onclick="go(3)">Back</button>
+      <button class="btn btn-next" onclick="saveProfile()">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 5: Scoring Profile -->
+  <div class="step" id="step-5">
+    <div class="step-title">Step 5 of 7: Scoring Profile</div>
+    <div class="step-desc">Controls how aggressively the system recommends jobs. All thresholds are saved to your Settings sheet and can be changed anytime.</div>
+    <div class="radio-group">
+      <label class="radio-opt">
+        <input type="radio" name="profile" value="Conservative">
+        <div class="radio-label">
+          <strong>Conservative</strong>
+          <span>Score &ge;0.65 &bull; Max 12 connects &bull; Max 25 proposals &bull; Max 14 days old. Fewer bids, higher bar only.</span>
+        </div>
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="profile" value="Standard" checked>
+        <div class="radio-label">
+          <strong>Standard (Recommended)</strong>
+          <span>Score &ge;0.60 &bull; Max 14 connects &bull; Max 35 proposals &bull; Max 21 days old. Balanced approach.</span>
+        </div>
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="profile" value="Aggressive">
+        <div class="radio-label">
+          <strong>Aggressive</strong>
+          <span>Score &ge;0.55 &bull; Max 18 connects &bull; Max 50 proposals &bull; Max 30 days old. More bids, lower bar.</span>
+        </div>
+      </label>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-back" onclick="go(4)">Back</button>
+      <button class="btn btn-next" onclick="go(6)">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 6: Portfolio -->
+  <div class="step" id="step-6">
+    <div class="step-title">Step 6 of 7: Portfolio Projects</div>
+    <div class="step-desc">FreelanceFlow references your real portfolio in every AI proposal. Keywords tell the system which jobs match each project. Add 2&ndash;5 projects.</div>
+    <div id="port-rows">
+      <div class="port-row">
+        <div class="port-num">Project 1</div>
+        <label class="sub">Project name:</label>
+        <input type="text" class="port-name" placeholder="e.g. Sales Performance Dashboard">
+        <label class="sub">Keywords (comma-separated):</label>
+        <input type="text" class="port-kw" placeholder="e.g. sales, revenue, quarterly, kpi">
+      </div>
+      <div class="port-row">
+        <div class="port-num">Project 2</div>
+        <label class="sub">Project name:</label>
+        <input type="text" class="port-name" placeholder="e.g. Inventory Tracking System">
+        <label class="sub">Keywords (comma-separated):</label>
+        <input type="text" class="port-kw" placeholder="e.g. inventory, stock, warehouse, reorder">
+      </div>
+      <div class="port-row">
+        <div class="port-num">Project 3</div>
+        <label class="sub">Project name:</label>
+        <input type="text" class="port-name" placeholder="e.g. HR Headcount Report">
+        <label class="sub">Keywords (comma-separated):</label>
+        <input type="text" class="port-kw" placeholder="e.g. hr, headcount, attrition, hiring">
+      </div>
+    </div>
+    <button class="btn-add" id="btn-add-port" onclick="addPortRow()">+ Add another project</button>
+    <div class="btn-row">
+      <button class="btn btn-back" onclick="go(5)">Back</button>
+      <button class="btn btn-next" onclick="go(7)">Next</button>
+    </div>
+  </div>
+
+  <!-- Step 7: Initialize -->
+  <div class="step" id="step-7">
+    <div class="step-title">Step 7 of 7: Build Your System</div>
+    <div class="step-desc">Review your setup then click the button below. FreelanceFlow will create all your tracking sheets, load your settings, and register automation.</div>
+    <div class="review-box" id="review-box"></div>
+    <div id="init-status"></div>
+    <div class="btn-row">
+      <button class="btn btn-back" id="back-7" onclick="go(6)">Back</button>
+      <button class="btn btn-init" id="btn-init" onclick="initialize()">START FREELANCEFLOW</button>
+    </div>
+  </div>
+
+  <!-- Success -->
+  <div class="step" id="step-success">
+    <div class="success">
+      <div class="success-icon">&#10003;</div>
+      <div class="success-title">FreelanceFlow is ready.</div>
+      <div class="success-msg">Your pipeline is set up. Close this sidebar and use the <strong>System Tools</strong> menu to begin.</div>
+      <div class="next-steps">
+        <strong>Start here:</strong>
+        <ol>
+          <li>System Tools &rsaquo; Start Session</li>
+          <li>Search Upwork using keywords in your Keyword_Search_List</li>
+          <li>Paste each job description into Job_Discovery</li>
+          <li>The system scores and routes automatically</li>
+          <li>System Tools &rsaquo; End Session when done</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+var cur = 1;
+var apiKeyValidated = false;
+var specialtyFilled = false;
+
+function go(n) {
+  if (n === 7) buildReview();
+  document.querySelector('.step.active').classList.remove('active');
+  document.getElementById('step-' + n).classList.add('active');
+  for (var i = 1; i <= 7; i++) {
+    var d = document.getElementById('d' + i);
+    d.className = 'dot' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+  cur = n;
+}
+
+function clearEl(id) { document.getElementById(id).innerHTML = ''; }
+
+function status(id, msg, type) {
+  document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+}
+
+// Step 2
+function validateKey() {
+  var key = document.getElementById('api-key').value.trim();
+  if (!key) { status('api-status','Paste your API key first.','error'); return; }
+  document.getElementById('btn-validate').disabled = true;
+  status('api-status','Validating...','loading');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      document.getElementById('btn-validate').disabled = false;
+      if (r.ok) {
+        status('api-status', r.message, 'ok');
+        apiKeyValidated = true;
+        setTimeout(function(){ go(3); }, 700);
+      } else {
+        status('api-status', r.message, 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('btn-validate').disabled = false;
+      status('api-status','Error: ' + e.message,'error');
+    })
+    .wizard_validateApiKey(key);
+}
+
+// Step 3: AI suggest
+function suggestSetup() {
+  var desc = document.getElementById('niche-desc').value.trim();
+  if (!desc) { status('specialty-status','Describe your specialty first.','error'); return; }
+  var key  = document.getElementById('api-key').value.trim();
+  document.getElementById('btn-suggest').disabled = true;
+  status('specialty-status','Analyzing your specialty...','loading');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      document.getElementById('btn-suggest').disabled = false;
+      if (r.ok) {
+        document.getElementById('primary-tools').value = r.tools || '';
+        document.getElementById('background').value    = r.background || '';
+        document.getElementById('starter-kw').value   = Array.isArray(r.keywords) ? r.keywords.join(', ') : '';
+        showSpecialtyFields();
+        clearEl('specialty-status');
+      } else {
+        status('specialty-status', r.message, 'error');
+        showSpecialtyFields();
+      }
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('btn-suggest').disabled = false;
+      status('specialty-status','Error: ' + e.message,'error');
+      showSpecialtyFields();
+    })
+    .wizard_analyzeNiche(desc, key);
+}
+
+function showManualSpecialty() {
+  showSpecialtyFields();
+  clearEl('specialty-status');
+}
+
+function showSpecialtyFields() {
+  document.getElementById('specialty-fields').style.display = 'block';
+  document.getElementById('btn-spec-next').style.display   = 'block';
+}
+
+function saveSpecialty() {
+  if (!document.getElementById('primary-tools').value.trim()) {
+    status('specialty-status','Enter your primary tools.','error'); return;
+  }
+  clearEl('specialty-status');
+  go(4);
+}
+
+// Step 4
+function saveProfile() {
+  var name = document.getElementById('freelancer-name').value.trim();
+  var bal  = document.getElementById('connect-balance').value.trim();
+  if (!name) { alert('Enter your name.'); return; }
+  if (!bal || isNaN(bal)) { alert('Enter your connect balance.'); return; }
+  go(5);
+}
+
+// Step 6
+function addPortRow() {
+  var rows = document.querySelectorAll('.port-row');
+  if (rows.length >= 5) { document.getElementById('btn-add-port').disabled = true; return; }
+  var n   = rows.length + 1;
+  var div = document.createElement('div');
+  div.className = 'port-row';
+  div.innerHTML =
+    '<div class="port-num">Project ' + n + '</div>' +
+    '<label class="sub">Project name:</label>' +
+    '<input type="text" class="port-name" placeholder="Project name">' +
+    '<label class="sub">Keywords (comma-separated):</label>' +
+    '<input type="text" class="port-kw" placeholder="keyword1, keyword2, keyword3">';
+  document.getElementById('port-rows').appendChild(div);
+  if (rows.length + 1 >= 5) document.getElementById('btn-add-port').disabled = true;
+}
+
+function getPortfolio() {
+  var out = [];
+  document.querySelectorAll('.port-row').forEach(function(r) {
+    var n = r.querySelector('.port-name').value.trim();
+    var k = r.querySelector('.port-kw').value.trim();
+    if (n) out.push({ name: n, keywords: k });
+  });
+  return out;
+}
+
+// Step 7: review
+function buildReview() {
+  var name    = document.getElementById('freelancer-name').value.trim();
+  var bal     = document.getElementById('connect-balance').value.trim();
+  var tools   = document.getElementById('primary-tools').value.trim();
+  var bg      = document.getElementById('background').value.trim();
+  var profile = document.querySelector('input[name=profile]:checked').value;
+  var port    = getPortfolio();
+  var html =
+    '<strong>Name:</strong> ' + (name || '&mdash;') + '<br>' +
+    '<strong>Connect Balance:</strong> ' + (bal || '0') + '<br>' +
+    '<strong>Scoring Profile:</strong> ' + profile + '<br>' +
+    '<strong>Primary Tools:</strong> ' + (tools || '&mdash;') + '<br>' +
+    '<strong>Background:</strong> ' + (bg || '&mdash;') + '<br>' +
+    '<strong>Portfolio Projects:</strong> ' + port.length;
+  port.forEach(function(p, i) {
+    html += '<br><span style="color:#555;font-size:11px;">&nbsp;&nbsp;' + (i+1) + '. ' + p.name + '</span>';
+  });
+  document.getElementById('review-box').innerHTML = html;
+}
+
+// Initialize
+function initialize() {
+  var port = getPortfolio();
+  if (port.length === 0) { status('init-status','Add at least one portfolio project in Step 6.','error'); return; }
+
+  var kwRaw = document.getElementById('starter-kw').value.trim();
+  var kws   = kwRaw ? kwRaw.split(',').map(function(k){ return k.trim(); }).filter(function(k){ return k; }) : [];
+
+  var data = {
+    apiKey:             document.getElementById('api-key').value.trim(),
+    name:               document.getElementById('freelancer-name').value.trim(),
+    connectBalance:     Number(document.getElementById('connect-balance').value) || 0,
+    contractsCompleted: Number(document.getElementById('contracts').value)        || 0,
+    reviewsCount:       Number(document.getElementById('reviews').value)          || 0,
+    jobSuccessScore:    Number(document.getElementById('jss').value)              || 0,
+    primaryTools:       document.getElementById('primary-tools').value.trim(),
+    background:         document.getElementById('background').value.trim(),
+    starterKeywords:    kws,
+    scoringProfile:     document.querySelector('input[name=profile]:checked').value,
+    portfolio:          port
+  };
+
+  if (!data.apiKey) { status('init-status','API key missing. Go back to Step 2.','error'); return; }
+  if (!data.name)   { status('init-status','Name missing. Go back to Step 4.','error');    return; }
+
+  document.getElementById('btn-init').disabled = true;
+  document.getElementById('back-7').disabled   = true;
+  status('init-status','Building your system... this may take 20 seconds.','loading');
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.ok) {
+        document.querySelector('.step.active').classList.remove('active');
+        document.getElementById('step-success').classList.add('active');
+        document.querySelector('.dots').style.display = 'none';
+      } else {
+        status('init-status','Error: ' + r.message,'error');
+        document.getElementById('btn-init').disabled = false;
+        document.getElementById('back-7').disabled   = false;
+      }
+    })
+    .withFailureHandler(function(e) {
+      status('init-status','Error: ' + e.message,'error');
+      document.getElementById('btn-init').disabled = false;
+      document.getElementById('back-7').disabled   = false;
+    })
+    .wizard_initialize(data);
+}
+</script>
+</body>
+</html>

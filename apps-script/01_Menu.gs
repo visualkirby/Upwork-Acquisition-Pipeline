@@ -1,28 +1,29 @@
 /**
  * ============================================================
  * 1. MENU
+ * onOpen is defined in 00_Setup_Wizard.gs -- do not redefine.
  * ============================================================
  */
-function onOpen() {
+function buildSystemMenu_() {
   SpreadsheetApp.getUi()
-    .createMenu("System Tools")
-    .addItem("Reset System",           "RESET_SYSTEM")
-    .addItem("Mine Keywords",          "MINE_KEYWORDS")
+    .createMenu('System Tools')
+    .addItem('Reset System',             'RESET_SYSTEM')
+    .addItem('Mine Keywords',            'MINE_KEYWORDS')
     .addSeparator()
-    .addItem("Start Session",          "START_SESSION")
-    .addItem("End Session",            "END_SESSION")
+    .addItem('Start Session',            'START_SESSION')
+    .addItem('End Session',              'END_SESSION')
     .addSeparator()
-    .addItem("Analyze Job Workflow",     "ANALYZE_JOB_WORKFLOW")
-    .addItem("Analyze Session Patterns", "ANALYZE_SESSION_PATTERNS")
-    .addItem("Analyze Bid Patterns",     "ANALYZE_BID_PATTERNS")
-    .addItem("Run Job Classification",   "RUN_JOB_CLASSIFICATION")
-    .addItem("Run AI Proposals",         "RUN_AI_PROPOSALS")
+    .addItem('Analyze Job Workflow',      'ANALYZE_JOB_WORKFLOW')
+    .addItem('Analyze Session Patterns',  'ANALYZE_SESSION_PATTERNS')
+    .addItem('Analyze Bid Patterns',      'ANALYZE_BID_PATTERNS')
+    .addItem('Run Job Classification',    'RUN_JOB_CLASSIFICATION')
+    .addItem('Run AI Proposals',          'RUN_AI_PROPOSALS')
     .addSeparator()
-    .addItem("Snapshot Month End",     "SNAPSHOT_MONTH_END")
+    .addItem('Snapshot Month End',        'SNAPSHOT_MONTH_END')
     .addSeparator()
-    .addItem("Apply Formula Fixes",    "APPLY_FORMULA_FIXES")
+    .addItem('Setup API Key',             'SETUP_API_KEY')
+    .addItem('Check API Key',             'CHECK_API_KEY')
     .addSeparator()
-    .addItem("Setup API Key",          "SETUP_API_KEY")
-    .addItem("Check API Key",          "CHECK_API_KEY")
+    .addItem('FreelanceFlow Setup',       'OPEN_SETUP_WIZARD')
     .addToUi();
 }

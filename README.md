@@ -98,8 +98,9 @@ The Google Sheets automation handles:
 - Proposal and follow-up tracker auto-population
 - Month-end snapshot to Monthly_Performance tab
 - Keyword mining from job descriptions
+- Guided setup wizard (sidebar UI) that provisions all pipeline sheets and formulas for a new user in one pass
 
-[Upwork Acquisition System Apps Script](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/upwork_acquisition_system.gs) 
+[Upwork Acquisition System Apps Script](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/apps-script/) 
 ---
 
 ## 🔑 Key Results (April 2026)
@@ -165,8 +166,11 @@ Upwork-Acquisition-Pipeline/
 │   ├── 05_session_performance.sql
 │   ├── 06_proposal_analysis.sql
 │   └── 07_complexity_breakdown.sql
-├── apps_script/
-│   └── upwork_acquisition_system.gs
+├── apps-script/
+│   ├── 00_Setup_Wizard.gs
+│   ├── 01_Menu.gs ... 17_Bid_Analysis.gs
+│   ├── SetupWizard.html
+│   └── appsscript.json
 └── screenshots/
     ├── Google_BigQuery.png
     ├── Pipeline_Funnel_Results.png
