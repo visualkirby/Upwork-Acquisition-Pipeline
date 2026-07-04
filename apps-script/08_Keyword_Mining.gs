@@ -102,7 +102,7 @@ function MINE_KEYWORDS() {
     }
   }
 
-  var discLastRow = discoverySheet.getLastRow();
+  var discLastRow = getLastRealRow_(discoverySheet);
   if (discLastRow < 2) {
     ui.alert("Job_Discovery has no data rows to mine.");
     return;

@@ -56,3 +56,70 @@ function analyzeNiche(description, apiKey) {
     return { ok: false, message: 'Could not parse AI response. Fill in manually.' };
   }
 }
+
+
+/**
+ * Fires right after analyzeNiche succeeds -- defines however many distinct
+ * JOB TYPE categories actually fit this freelancer's niche (3-6, AI's call,
+ * not a fixed count) plus a proposal-writing strategy per category. Replaces
+ * Proposal_Templates' old hardcoded BI/dashboard sample rows and Job
+ * Classifier's old hardcoded 4-category list with something niche-derived --
+ * same fix pattern as Tool_Detected earlier, applied to job typing.
+ *
+ * Each returned template's "notes" field doubles as human documentation AND
+ * classifier guidance -- Lib_JobClassifier's getJobType reads it back at
+ * classification time so the categories and their meaning never drift apart.
+ */
+function generateNicheTemplates(description, tools, background, apiKey) {
+  if (!apiKey) return { ok: false, message: 'API key not found. Complete Step 2 first.' };
+
+  var prompt =
+    'You are helping a freelancer set up an Upwork proposal-writing system. ' +
+    'Based on their specialty below, define 3 to 6 distinct JOB TYPE categories that jobs in ' +
+    'their niche typically fall into (e.g. for a bookkeeper: Cleanup, Ongoing Bookkeeping, ' +
+    'Reconciliation, Reporting). For EACH category, write a short proposal-writing strategy. ' +
+    'Return only a valid JSON array, no markdown, no explanation. Each element must have exactly ' +
+    'these keys: ' +
+    '"jobType" (1-3 word category name), ' +
+    '"notes" (one sentence describing what qualifies a job for this category -- used to help an AI classifier route jobs correctly), ' +
+    '"angle" (one sentence: what a proposal opener should focus on for this category), ' +
+    '"tone" (one word, e.g. Direct, Confident, Reassuring), ' +
+    '"ctaStyle" (one word: Question or Offer), ' +
+    '"exampleOutput" (a 2-sentence generic example structure for how a proposal opener and closing question should sound for this category -- do not reference a specific client). ' +
+    'Specialty: ' + description.substring(0, 500) + '. ' +
+    'Tools: ' + (tools || 'not specified') + '. ' +
+    'Background: ' + (background || 'not specified');
+
+  try {
+    var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bearer ' + apiKey },
+      payload: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 900,
+        temperature: 0.4
+      }),
+      muteHttpExceptions: true
+    });
+
+    var data = JSON.parse(response.getContentText());
+    if (data.error) return { ok: false, message: 'API error: ' + data.error.message };
+
+    var content = data.choices && data.choices[0]
+      ? data.choices[0].message.content.trim()
+      : '';
+
+    content = content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    var parsed = JSON.parse(content);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return { ok: false, message: 'No categories returned.' };
+    }
+
+    return { ok: true, templates: parsed };
+  } catch (e) {
+    return { ok: false, message: 'Could not parse AI response.' };
+  }
+}

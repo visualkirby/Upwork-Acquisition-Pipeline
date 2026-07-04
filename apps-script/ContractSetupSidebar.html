@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wrap { padding: 16px; }
+
+.header { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 18px; font-weight: 700; color: #05467c; }
+.tagline { font-size: 11px; color: #888; margin-top: 2px; }
+
+.step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
+.step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
+
+label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; margin-top: 12px; }
+label.sub { font-weight: 400; color: #555; margin-top: 6px; }
+select, input[type=text], input[type=number] {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+select:focus, input:focus { border-color: #03a6a5; }
+
+.radio-group { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.radio-opt { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; cursor: pointer; }
+.radio-opt:hover { border-color: #03a6a5; background: #f5fdfd; }
+.radio-opt input[type=radio] { margin-top: 3px; accent-color: #03a6a5; flex-shrink: 0; }
+.radio-label strong { display: block; font-size: 13px; }
+.radio-label span { color: #777; font-size: 11px; line-height: 1.4; }
+
+.milestone-row { padding: 10px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fafafa; margin-bottom: 8px; position: relative; }
+.milestone-num { font-size: 11px; font-weight: 700; color: #03a6a5; margin-bottom: 6px; }
+.btn-remove { position: absolute; top: 8px; right: 8px; background: none; border: none; color: #b71c1c; font-size: 14px; cursor: pointer; }
+
+.btn-add { background: none; border: 1px dashed #03a6a5; color: #03a6a5; font-size: 12px; padding: 6px; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 4px; }
+.btn-add:hover { background: #f0fafa; }
+
+.total-line { font-size: 12px; color: #555; margin-top: 8px; text-align: right; }
+
+.btn-row { display: flex; gap: 8px; margin-top: 18px; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-save { background: #03a6a5; color: #fff; flex: 1; }
+.btn-save:hover { background: #028888; }
+.btn-save:disabled { background: #bbb; cursor: not-allowed; }
+
+.status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.ok      { background: #e8f5e9; color: #2e7d32; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+.info-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-size: 12px; line-height: 1.5; color: #333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="logo">FreelanceFlow</div>
+    <div class="tagline">Log New Contract</div>
+  </div>
+
+  <div id="walkthrough-box"></div>
+
+  <label>Contract</label>
+  <select id="job-select"></select>
+
+  <label>Contract Type</label>
+  <div class="radio-group">
+    <label class="radio-opt">
+      <input type="radio" name="contractType" value="Fixed" checked onchange="toggleType()">
+      <span class="radio-label"><strong>Fixed-Price</strong><span>Broken into one or more milestones, funded and released as work is delivered.</span></span>
+    </label>
+    <label class="radio-opt">
+      <input type="radio" name="contractType" value="Hourly" onchange="toggleType()">
+      <span class="radio-label"><strong>Hourly</strong><span>Billed weekly off logged hours -- no milestones.</span></span>
+    </label>
+  </div>
+
+  <div id="fixed-panel">
+    <label>Milestones</label>
+    <div id="milestone-rows">
+      <div class="milestone-row">
+        <button class="btn-remove" onclick="removeMilestone(this)">&times;</button>
+        <div class="milestone-num">Milestone 1</div>
+        <label class="sub">Description:</label>
+        <input type="text" class="ms-desc" placeholder="e.g. Chart of accounts cleanup">
+        <label class="sub">Amount:</label>
+        <input type="number" class="ms-amount" placeholder="0.00" step="0.01" oninput="updateTotal()">
+      </div>
+    </div>
+    <button class="btn-add" onclick="addMilestone()">+ Add milestone</button>
+    <div class="total-line">Total: $<span id="total-amount">0.00</span></div>
+  </div>
+
+  <div id="hourly-panel" style="display:none">
+    <label>Hourly Rate</label>
+    <input type="number" id="hourly-rate" placeholder="0.00" step="0.01">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-save" id="btn-save" onclick="saveContract()">Save Contract</button>
+  </div>
+
+  <div id="status"></div>
+
+</div>
+
+<script>
+function clearEl(id) { document.getElementById(id).innerHTML = ''; }
+function status(id, msg, type) {
+  document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+}
+
+function toggleType() {
+  var isFixed = document.querySelector('input[name=contractType]:checked').value === 'Fixed';
+  document.getElementById('fixed-panel').style.display  = isFixed ? 'block' : 'none';
+  document.getElementById('hourly-panel').style.display = isFixed ? 'none'  : 'block';
+}
+
+function addMilestone() {
+  var rows = document.querySelectorAll('.milestone-row');
+  var n    = rows.length + 1;
+  var div  = document.createElement('div');
+  div.className = 'milestone-row';
+  div.innerHTML =
+    '<button class="btn-remove" onclick="removeMilestone(this)">&times;</button>' +
+    '<div class="milestone-num">Milestone ' + n + '</div>' +
+    '<label class="sub">Description:</label>' +
+    '<input type="text" class="ms-desc" placeholder="Milestone description">' +
+    '<label class="sub">Amount:</label>' +
+    '<input type="number" class="ms-amount" placeholder="0.00" step="0.01" oninput="updateTotal()">';
+  document.getElementById('milestone-rows').appendChild(div);
+}
+
+function removeMilestone(btn) {
+  var rows = document.querySelectorAll('.milestone-row');
+  if (rows.length <= 1) return;
+  btn.parentElement.remove();
+  renumberMilestones();
+  updateTotal();
+}
+
+function renumberMilestones() {
+  document.querySelectorAll('.milestone-row').forEach(function (r, i) {
+    r.querySelector('.milestone-num').textContent = 'Milestone ' + (i + 1);
+  });
+}
+
+function updateTotal() {
+  var total = 0;
+  document.querySelectorAll('.ms-amount').forEach(function (i) {
+    total += Number(i.value) || 0;
+  });
+  document.getElementById('total-amount').textContent = total.toFixed(2);
+}
+
+function getMilestones() {
+  var out = [];
+  document.querySelectorAll('.milestone-row').forEach(function (r) {
+    var desc = r.querySelector('.ms-desc').value.trim();
+    var amt  = Number(r.querySelector('.ms-amount').value) || 0;
+    if (desc || amt) out.push({ description: desc, amount: amt });
+  });
+  return out;
+}
+
+function init() {
+  google.script.run
+    .withSuccessHandler(function (r) {
+      if (r.showWalkthrough) {
+        document.getElementById('walkthrough-box').innerHTML =
+          '<div class="info-box">Fixed-price contracts break into milestones -- add each one\'s ' +
+          'description and amount below. Mark a milestone Released in Milestone_Tracker once funds ' +
+          'actually clear, and that\'s what counts as revenue. Hourly contracts have no milestones -- ' +
+          'log hours directly in the new Hourly_Log sheet instead, and each entry counts as revenue ' +
+          'as you log it.</div>';
+      }
+      var select = document.getElementById('job-select');
+      (r.contracts || []).forEach(function (c) {
+        var opt = document.createElement('option');
+        opt.value = c.discoveryId;
+        opt.textContent = c.jobTitle + ' -- ' + c.clientName;
+        select.appendChild(opt);
+      });
+      if (r.pendingDiscoveryId) select.value = r.pendingDiscoveryId;
+    })
+    .withFailureHandler(function (e) {
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .contract_getContext();
+}
+
+function saveContract() {
+  var discoveryId = document.getElementById('job-select').value;
+  if (!discoveryId) { status('status', 'No contract selected.', 'error'); return; }
+
+  var contractType = document.querySelector('input[name=contractType]:checked').value;
+  var data = {
+    discoveryId:  discoveryId,
+    contractType: contractType,
+    contractValue: contractType === 'Fixed'
+      ? document.querySelectorAll('.ms-amount').length
+        ? Array.from(document.querySelectorAll('.ms-amount')).reduce(function (s, i) { return s + (Number(i.value) || 0); }, 0)
+        : 0
+      : 0,
+    hourlyRate: Number(document.getElementById('hourly-rate').value) || 0,
+    milestones: contractType === 'Fixed' ? getMilestones() : []
+  };
+
+  if (contractType === 'Fixed' && data.milestones.length === 0) {
+    status('status', 'Add at least one milestone.', 'error');
+    return;
+  }
+
+  document.getElementById('btn-save').disabled = true;
+  status('status', 'Saving...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-save').disabled = false;
+      if (r.ok) {
+        status('status', 'Contract saved.', 'ok');
+      } else {
+        status('status', r.message, 'error');
+      }
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-save').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .contract_saveSetup(data);
+}
+
+init();
+</script>
+</body>
+</html>

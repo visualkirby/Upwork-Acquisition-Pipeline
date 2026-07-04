@@ -5,6 +5,12 @@
  * Do NOT define onOpen in any other module.
  * ============================================================
  */
+
+// How many rows to prefill scoring/detection formulas down when a
+// pipeline sheet is created, so they're already live before the user
+// pastes in their first job -- rather than only existing in row 2.
+var FORMULA_PREFILL_ROWS = 500;
+
 function onOpen() {
   buildSystemMenu_();
   var prop = PropertiesService.getScriptProperties();
@@ -60,6 +66,16 @@ function wizard_analyzeNiche(description, apiKey) {
   return FFLib.analyzeNiche(description, key);
 }
 
+// Fires automatically right after wizard_analyzeNiche succeeds -- generates
+// niche-specific Job_Type categories + template content instead of shipping
+// fixed BI/dashboard sample templates. Result flows into data.generatedTemplates
+// at Step 7, written by initProposalTemplates_.
+function wizard_generateTemplates(description, tools, background, apiKey) {
+  var key = apiKey || PropertiesService.getScriptProperties().getProperty('UPWORK_OPENAI_API_KEY');
+  if (!key) return { ok: false, message: 'API key not found. Complete Step 2 first.' };
+  return FFLib.generateNicheTemplates(description, tools, background, key);
+}
+
 
 // ---- Main initialization (Step 7 button) ---------------------------------------
 
@@ -73,8 +89,7 @@ function wizard_initialize(data) {
 
   initSettingsSheet_(ss, data, thresholds);
   initConnectsHelper_(ss, Number(data.connectBalance) || 0);
-  initProposalTemplates_(ss, data.portfolio);
-  initFollowupTemplates_(ss);
+  initProposalTemplates_(ss, data.portfolio, data.generatedTemplates);
   ensurePipelineSheets_(ss, data.starterKeywords || []);
   registerEditTrigger_();
 
@@ -123,6 +138,7 @@ function initSettingsSheet_(ss, data, thresholds) {
     ['Contracts_Completed',      data.contractsCompleted  || 0],
     ['Reviews_Count',            data.reviewsCount        || 0],
     ['Job_Success_Score',        data.jobSuccessScore     || 0],
+    ['Freelancer_Experience_Level', data.experienceLevel],
     ['Journey_Stage',            ''],
     ['Proposal_Tone',            'Direct'],
     ['Scoring_Profile',          data.scoringProfile],
@@ -187,65 +203,58 @@ function initConnectsHelper_(ss, startBalance) {
   sheet.getRange(2, 1, metrics.length, 2).setValues(metrics);
 }
 
-function initProposalTemplates_(ss, portfolio) {
+function initProposalTemplates_(ss, portfolio, generatedTemplates) {
   var sheet = ss.getSheetByName('Proposal_Templates');
   if (!sheet) sheet = ss.insertSheet('Proposal_Templates');
 
-  var headers = ['Template_ID','Job_Type','Hook_Version','CTA_Version','Angle','Credential_Hint','Tone','CTA_Style','Example_Output','Notes'];
+  var headers = ['Template_ID','Job_Type','Hook_Version','CTA_Version','Angle','Credential_Hint','Tone','CTA_Style','Example_Output','Notes','Is_Default'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
   if (sheet.getLastRow() > 1) return;
 
   var defaultCred = (portfolio && portfolio.length > 0) ? portfolio[0].name : 'Your Portfolio Project';
 
-  var samples = [
-    ['T1','Dashboard Build','A','A',
-     'Lead with the specific industry or data problem in the job post',
-     defaultCred,'Direct','Question',
-     'Open with one sentence referencing a specific job detail. Connect your portfolio project to their need. End with one direct question.',
-     'Primary template -- use for most new dashboard builds'],
-    ['T1','Dashboard Fix','B','A',
-     'Acknowledge the existing issue before offering the fix',
-     defaultCred,'Confident','Question',
-     'Name the specific problem (slow, unclear, missing metric). Reference a fix you have done before. One targeted question.',
-     'Use when the client mentions an existing dashboard needs work'],
-    ['T2','Data to Dashboard','A','B',
-     'Focus on the data cleaning step clients underestimate',
-     defaultCred,'Direct','Offer',
-     'Name the data format or problem. Reference your clean-to-visual pipeline experience. End with a scope question.',
-     'Use for raw data or CSV to dashboard jobs']
-  ];
-  sheet.getRange(2, 1, samples.length, headers.length).setValues(samples);
-}
+  var rows = (generatedTemplates || []).map(function (t, i) {
+    return [
+      'T' + (i + 1),
+      t.jobType || 'General',
+      'A', 'A',
+      t.angle || '',
+      defaultCred,
+      t.tone || 'Direct',
+      t.ctaStyle || 'Question',
+      t.exampleOutput || '',
+      t.notes || '',
+      i === 0 ? 'Yes' : 'No'
+    ];
+  });
 
-function initFollowupTemplates_(ss) {
-  var sheet = ss.getSheetByName('Followup_Templates');
-  if (!sheet) sheet = ss.insertSheet('Followup_Templates');
+  // Niche-specific templates come from Step 3's AI assist (Lib_WizardAI's
+  // generateNicheTemplates). If that call never ran or failed, this generic
+  // row keeps the pipeline usable rather than shipping an empty sheet --
+  // niche-agnostic on purpose, not a stand-in for the old hardcoded samples.
+  if (rows.length === 0) {
+    rows = [[
+      'T1','General','A','A',
+      'Lead with the most specific detail from the job post',
+      defaultCred,'Direct','Question',
+      'Open with one sentence referencing a specific job detail. Connect your relevant experience to their need. End with one direct question.',
+      'Fallback template -- AI generation was unavailable during setup','Yes'
+    ]];
+  }
 
-  var headers = ['Template_ID','Followup_Number','Days_After_Send','Subject','Body','Notes'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
-  if (sheet.getLastRow() > 1) return;
-
-  var samples = [
-    ['F1',1,5,'Re: [Job Title]',
-     'Still available if you are moving forward with this project. Happy to answer any questions before you decide.',
-     'Send 5 days after proposal if no reply'],
-    ['F2',2,10,'Re: [Job Title]',
-     'Following up one more time -- still interested if the timeline shifted. Let me know either way.',
-     'Send 10 days after proposal'],
-    ['F3',3,18,'Re: [Job Title]',
-     'Last follow-up -- if this project is still open and you need this work done quickly, I can start this week.',
-     'Final follow-up at 18 days']
-  ];
-  sheet.getRange(2, 1, samples.length, headers.length).setValues(samples);
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
 }
 
 function ensurePipelineSheets_(ss, starterKeywords) {
   var defs = [
-    { name: 'Job_Discovery', headers: ['Session_ID','Date_Found','Job_Title','Client_Name','Description','Job_Link','Keyword_Search','Tool_Detected','Experience_Level','Hours_Since_Posted','Days_Since_Posted','Proposal_Count','Payment_Verified','Client_Hires','Budget_Type','Budget','Hourly_Rate','Connects_Required','Quick_Notes','Discovery_Action'] },
-    { name: 'Job_Scoring',   headers: ['Job_Title','Client_Name','Description','Job_Link','Keyword_Search','Tool_Detected','Experience_Level','Hours_Since_Posted','Days_Since_Posted','Proposal_Count','Payment_Verified','Client_Hires','Budget_Type','Budget','Hourly_Rate','Connects_Required','Quick_Notes','Date_Scored','Effort_Level','Scope_Rating','Portfolio_Match','Tool_Score','Experience_Score','Freshness_Score','Competition_Score','Budget_Score','Verification_Score','Client_History_Score','Keyword_Fit_Score','Scope_Score','Tool_Match_Score','Connects_Affordability','Total_Score','Score_Per_Connect','Final_Decision','Proposal_Generator_Date'] },
-    { name: 'Proposal_Generator', headers: ['Date','Job_Title','Client_Name','Description','Job_Link','Keyword_Search','Tool_Detected','Job_Type','Connects_Required','Proposal_Count','Budget','Portfolio_Project','Recommended_Template','Hook_Version','CTA_Version','Bid_1st','Bid_2nd','Bid_3rd','Boost_Connects','Total_Connects_Spent','Bid_Recommendation','AI_Generated_Proposal','Proposal_Status','Proposal_Sent_Date','Proposal_Skip_Date','Notes'] },
-    { name: 'Proposal_Tracker',  headers: ['Date_Applied','Job_Title','Client_Name','Keyword_Search','Tool_Requested','Days_Since_Posted','Proposal_Count','Total_Score','Template_Used','Hook_Version','CTA_Version','Client_Replied','Interview','Hired','Revenue','Notes','Age_Days','Current_Age_Days','Connects_Used','Boost_Connects','Proposal_Cost','Job_Link'] },
-    { name: 'Followup_Tracker',  headers: ['Date_Applied','Job_Title','Client_Name','Template_Used','Followup1_Sent','Followup1_Template','Followup2_Sent','Followup2_Template','Followup3_Sent','Followup3_Template','Client_Replied','Interview','Hired','Notes'] },
+    { name: 'Job_Discovery', headers: ['Discovery_ID','Date_Found','Session_ID','Job_Title','Description','Additional_Questions','Client_Name','Keyword_Search','Tool_Detected','Experience_Level','Minutes_Since_Posted','Hours_Since_Posted','Days_Since_Posted','Current_Age_Days','Proposal_Count','Payment_Verified','Client_Hires','Budget_Type','Budget','Hourly_Rate','Job_Link','Connects_Required','AI_Fit_Notes','Discovery_Status','Keyword_Fit_Score','Tool_Score','Experience_Score','Freshness_Score','Competition_Score','Verification_Score','Client_History_Score','Budget_Quick_Score','Discovery_Priority_Score','Discovery_Action'] },
+    { name: 'Job_Scoring',   headers: ['Discovery_ID','Date_Scored','Job_Title','Description','Additional_Questions','Client_Name','Keyword_Search','Tool_Detected','Experience_Level','Hours_Since_Posted','Days_Since_Posted','Proposal_Count','Payment_Verified','Client_Hires','Budget_Type','Budget','Hourly_Rate','Connects_Required','Job_Link','Effort_Level','Estimated_Hours','Estimated_Hourly_Rate','Budget_Score','Keyword_Score','Tool_Score','Experience_Score','Freshness_Score','Competition_Score','Client_History_Score','Scope_Rating','Scope_Score','Portfolio_Match','Portfolio_Score','Connects_Affordability','Total_Score','Score_Per_Connect','Final_Decision','Proposal_Generator_Date','AI_Fit_Notes','Current_Age_Days'] },
+    { name: 'Proposal_Generator', headers: ['Discovery_ID','Date','Job_Title','Client_Name','Description','Job_Link','Keyword_Search','Tool_Detected','Job_Type','Connects_Required','Proposal_Count','Budget','Portfolio_Project','Recommended_Template','Hook_Version','CTA_Version','Bid_1st','Bid_2nd','Bid_3rd','Bid_4th','Boost_Connects','Total_Connects_Spent','Bid_Recommendation','Additional_Questions','AI_Generated_Proposal','Additional_Answers','Proposal_Status','Proposal_Sent_Date','Proposal_Skip_Date','Notes'] },
+    { name: 'Proposal_Tracker',  headers: ['Discovery_ID','Date_Applied','Job_Title','Client_Name','Keyword_Search','Tool_Requested','Days_Since_Posted','Proposal_Count','Total_Score','Template_Used','Hook_Version','CTA_Version','Viewed','Interview','Hired','Revenue','Notes','Age_Days','Current_Age_Days','Connects_Used','Boost_Connects','Proposal_Cost','Job_Link'] },
+    { name: 'Client_Chat_Log',  headers: ['Discovery_ID','Job_Title','Client_Name','Message_Number','Sender_Name','Direction','Message_Time','Message_Text','Last_Synced'] },
+    { name: 'Contract_Tracker', headers: ['Discovery_ID','Job_Title','Client_Name','Contract_Type','Contract_Value','Hourly_Rate','Start_Date','Status','Total_Released','Notes'] },
+    { name: 'Milestone_Tracker', headers: ['Discovery_ID','Job_Title','Milestone_Number','Description','Amount','Status','Funded_Date','Delivered_Date','Released_Date','Notes'] },
+    { name: 'Hourly_Log',       headers: ['Discovery_ID','Job_Title','Log_Date','Hours_Logged','Amount','Notes'] },
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
     { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes'] },
@@ -259,12 +268,44 @@ function ensurePipelineSheets_(ss, starterKeywords) {
       sheet = ss.insertSheet(def.name);
       sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
 
-      if (def.name === 'Job_Scoring') {
+      if (def.name === 'Job_Discovery') {
+        applyJobDiscoveryFormulas_(sheet, def.headers);
+        applyJobDiscoveryValidation_(sheet, def.headers);
+        applyJobDiscoveryConditionalFormatting_(sheet, def.headers);
+      } else if (def.name === 'Job_Scoring') {
+        applyJobScoringPullFormula_(sheet, def.headers);
         applyJobScoringFormulas_(sheet, def.headers);
+        applyJobScoringValidation_(sheet, def.headers);
+        applyJobScoringConditionalFormatting_(sheet, def.headers);
       } else if (def.name === 'Proposal_Generator') {
+        applyProposalGeneratorPullFormula_(sheet, def.headers);
         applyProposalGeneratorFormulas_(sheet, def.headers);
+        applyProposalGeneratorValidation_(sheet, def.headers);
+      } else if (def.name === 'Proposal_Tracker') {
+        applyProposalTrackerValidation_(sheet, def.headers);
+      } else if (def.name === 'Contract_Tracker') {
+        applyContractTrackerValidation_(sheet, def.headers);
+      } else if (def.name === 'Milestone_Tracker') {
+        applyMilestoneTrackerValidation_(sheet, def.headers);
+      } else if (def.name === 'Hourly_Log') {
+        applyHourlyLogValidation_(sheet, def.headers);
       }
     }
+  }
+
+  // Additional_Questions flows backwards (Proposal_Generator -> Job_Scoring
+  // -> Job_Discovery, see Lib_WizardFormulas.gs's buildDiscoveryIdLookup_)
+  // so it has to be wired up here, after all three sheets are guaranteed to
+  // exist -- Job_Scoring's lookup formula reads Proposal_Generator's headers,
+  // which don't exist yet during Job_Scoring's own creation step above.
+  var jdSheetForLookup = ss.getSheetByName('Job_Discovery');
+  var jsSheetForLookup = ss.getSheetByName('Job_Scoring');
+  var pgSheetForLookup = ss.getSheetByName('Proposal_Generator');
+  if (jdSheetForLookup && jsSheetForLookup && pgSheetForLookup) {
+    applyJobScoringAdditionalQuestionsLookup_(jsSheetForLookup,
+      jsSheetForLookup.getRange(1, 1, 1, jsSheetForLookup.getLastColumn()).getValues()[0]);
+    applyJobDiscoveryAdditionalQuestionsLookup_(jdSheetForLookup,
+      jdSheetForLookup.getRange(1, 1, 1, jdSheetForLookup.getLastColumn()).getValues()[0]);
   }
 
   var kwSheet = ss.getSheetByName('Keyword_Search_List');
@@ -279,11 +320,12 @@ function ensurePipelineSheets_(ss, starterKeywords) {
 function registerEditTrigger_() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'onEdit') {
+    var handler = triggers[i].getHandlerFunction();
+    if (handler === 'onEdit' || handler === 'handleEdit') {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-  ScriptApp.newTrigger('onEdit')
+  ScriptApp.newTrigger('handleEdit')
     .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
     .onEdit()
     .create();
@@ -301,24 +343,387 @@ function registerEditTrigger_() {
 
 function applyJobScoringFormulas_(sheet, headers) {
   var formulas = FFLib.buildJobScoringFormulas(headers);
-  if (formulas.connectsAffordabilityFormula) {
-    sheet.getRange(2, formulas.connectsAffordabilityCol).setFormula(formulas.connectsAffordabilityFormula);
+
+  var fields = [
+    'currentAgeDays', 'effortLevel', 'scopeRating', 'portfolioMatch', 'estimatedHours',
+    'estimatedHourlyRate', 'budgetScore', 'keywordScore', 'toolScore', 'experienceScore',
+    'freshnessScore', 'competitionScore', 'clientHistoryScore', 'scopeScore', 'portfolioScore',
+    'connectsAffordability', 'totalScore', 'scorePerConnect', 'finalDecision', 'proposalGeneratorDate'
+  ];
+
+  fields.forEach(function (field) {
+    var col     = formulas[field + 'Col'];
+    var formula = formulas[field + 'Formula'];
+    if (col && formula) {
+      sheet.getRange(2, col, FORMULA_PREFILL_ROWS, 1).setFormula(formula);
+    }
+  });
+}
+
+// Job_Scoring's raw-data columns (Job_Title, Description, Budget, etc.)
+// auto-populate from Job_Discovery via a single spilling FILTER formula --
+// one cell per contiguous column group, never copied down per row like the
+// score formulas above (a FILTER re-spilling from every row would collide
+// with itself). Clears the group's range first so stale hand-typed data
+// (or a prior FILTER) can't block the new spill with a #REF! error.
+function applyJobScoringPullFormula_(sheet, headers) {
+  var jdSheet = sheet.getParent().getSheetByName('Job_Discovery');
+  if (!jdSheet) return;
+  var jdHeaders = jdSheet.getRange(1, 1, 1, jdSheet.getLastColumn()).getValues()[0];
+
+  var groups = FFLib.buildJobScoringPullFormulas(jdHeaders, headers);
+  if (groups.length === 0) return;
+
+  var lastRow = Math.max(sheet.getLastRow(), FORMULA_PREFILL_ROWS + 1);
+  groups.forEach(function (g) {
+    sheet.getRange(2, g.col, lastRow - 1, g.width).clearContent();
+    sheet.getRange(2, g.col).setFormula(g.formula);
+  });
+  forceDiscoveryIdNumberFormat_(sheet, headers, lastRow);
+}
+
+// Discovery_ID is a plain integer, but a column inserted next to a date
+// column can inherit date formatting from its neighbor -- forcing the
+// format here means the row number displays correctly (1, 2, 3...) no
+// matter how the column was created or which sheet it's pulled into.
+function forceDiscoveryIdNumberFormat_(sheet, headers, lastRow) {
+  var col = headers.indexOf('Discovery_ID') + 1;
+  if (col > 0) {
+    sheet.getRange(2, col, lastRow - 1, 1).setNumberFormat('0');
   }
-  if (formulas.finalDecisionFormula) {
-    sheet.getRange(2, formulas.finalDecisionCol).setFormula(formulas.finalDecisionFormula);
+}
+
+// Same pattern as applyJobScoringPullFormula_, one stage further down the
+// pipeline: Proposal_Generator's raw-data columns pull from Job_Scoring
+// wherever Final_Decision="APPLY".
+function applyProposalGeneratorPullFormula_(sheet, headers) {
+  var jsSheet = sheet.getParent().getSheetByName('Job_Scoring');
+  if (!jsSheet) return;
+  var jsHeaders = jsSheet.getRange(1, 1, 1, jsSheet.getLastColumn()).getValues()[0];
+
+  var groups = FFLib.buildProposalGeneratorPullFormulas(jsHeaders, headers);
+  if (groups.length === 0) return;
+
+  var lastRow = Math.max(sheet.getLastRow(), FORMULA_PREFILL_ROWS + 1);
+  groups.forEach(function (g) {
+    sheet.getRange(2, g.col, lastRow - 1, g.width).clearContent();
+    sheet.getRange(2, g.col).setFormula(g.formula);
+  });
+  forceDiscoveryIdNumberFormat_(sheet, headers, lastRow);
+}
+
+// Additional_Questions flows backwards -- a per-row VLOOKUP formula keyed on
+// Discovery_ID, prefilled down FORMULA_PREFILL_ROWS same as any other
+// per-row formula (not a FILTER spill, so no clearContent/single-cell
+// pattern needed here).
+function applyJobScoringAdditionalQuestionsLookup_(sheet, headers) {
+  var pgSheet = sheet.getParent().getSheetByName('Proposal_Generator');
+  if (!pgSheet) return;
+  var pgHeaders = pgSheet.getRange(1, 1, 1, pgSheet.getLastColumn()).getValues()[0];
+
+  var result = FFLib.buildJobScoringAdditionalQuestionsLookup(pgHeaders, headers);
+  if (result) {
+    sheet.getRange(2, result.col, FORMULA_PREFILL_ROWS, 1).setFormula(result.formula);
+  }
+}
+
+function applyJobDiscoveryAdditionalQuestionsLookup_(sheet, headers) {
+  var jsSheet = sheet.getParent().getSheetByName('Job_Scoring');
+  if (!jsSheet) return;
+  var jsHeaders = jsSheet.getRange(1, 1, 1, jsSheet.getLastColumn()).getValues()[0];
+
+  var result = FFLib.buildJobDiscoveryAdditionalQuestionsLookup(jsHeaders, headers);
+  if (result) {
+    sheet.getRange(2, result.col, FORMULA_PREFILL_ROWS, 1).setFormula(result.formula);
+  }
+}
+
+function applyProposalGeneratorValidation_(sheet, headers) {
+  var statusCol = headers.indexOf('Proposal_Status') + 1;
+  if (statusCol > 0) {
+    var statusRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Ready', 'Sent', 'Skip'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, statusCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(statusRule);
+  }
+
+  // Additional_Answers is free-text (AI-drafted), but a column inserted next
+  // to Proposal_Status's dropdown can inherit its validation rule the same
+  // way Discovery_ID inherited date formatting -- clear it explicitly so it
+  // can never show a stray dropdown arrow, no matter how the column was created.
+  var answersCol = headers.indexOf('Additional_Answers') + 1;
+  if (answersCol > 0) {
+    sheet.getRange(2, answersCol, FORMULA_PREFILL_ROWS, 1).clearDataValidations();
+  }
+}
+
+function applyJobScoringValidation_(sheet, headers) {
+  var budgetTypeCol = headers.indexOf('Budget_Type') + 1;
+  var payVerCol      = headers.indexOf('Payment_Verified') + 1;
+  var expLevelCol    = headers.indexOf('Experience_Level') + 1;
+  var propCountCol   = headers.indexOf('Proposal_Count') + 1;
+
+  if (budgetTypeCol > 0) {
+    var budgetTypeRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Fixed', 'Hourly_Range', 'Hourly_Unknown'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, budgetTypeCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(budgetTypeRule);
+  }
+
+  if (payVerCol > 0) {
+    var payVerRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Yes', 'No'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, payVerCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(payVerRule);
+  }
+
+  if (expLevelCol > 0) {
+    var expLevelRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Entry Level', 'Intermediate', 'Expert'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, expLevelCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(expLevelRule);
+  }
+
+  if (propCountCol > 0) {
+    var propCountRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Fewer than 5', '5 to 10', '10 to 15', '15 to 20', '20 to 50', '50+'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, propCountCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(propCountRule);
+  }
+}
+
+// Viewed/Interview/Hired are read as strict "Y" string matches by both the
+// Workflow Analyzer and handleEdit's MTD accumulation below -- a free-typed
+// "yes"/"Yes" would silently fail to count, so this is a correctness fix,
+// not cosmetic polish. Revenue gets currency formatting since it's the one
+// freeform manual-entry number field on this sheet.
+function applyProposalTrackerValidation_(sheet, headers) {
+  var ynRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Y', 'N'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  ['Viewed', 'Interview', 'Hired'].forEach(function (name) {
+    var col = headers.indexOf(name) + 1;
+    if (col > 0) {
+      sheet.getRange(2, col, FORMULA_PREFILL_ROWS, 1).setDataValidation(ynRule);
+    }
+  });
+
+  var revenueCol = headers.indexOf('Revenue') + 1;
+  if (revenueCol > 0) {
+    sheet.getRange(2, revenueCol, FORMULA_PREFILL_ROWS, 1).setNumberFormat('$#,##0.00');
+  }
+}
+
+function applyContractTrackerValidation_(sheet, headers) {
+  var typeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Fixed', 'Hourly'], true)
+    .setAllowInvalid(false)
+    .build();
+  var typeCol = headers.indexOf('Contract_Type') + 1;
+  if (typeCol > 0) {
+    sheet.getRange(2, typeCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(typeRule);
+  }
+
+  var statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Active', 'Completed', 'Ended Early'], true)
+    .setAllowInvalid(false)
+    .build();
+  var statusCol = headers.indexOf('Status') + 1;
+  if (statusCol > 0) {
+    sheet.getRange(2, statusCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(statusRule);
+  }
+
+  ['Contract_Value', 'Hourly_Rate', 'Total_Released'].forEach(function (name) {
+    var col = headers.indexOf(name) + 1;
+    if (col > 0) {
+      sheet.getRange(2, col, FORMULA_PREFILL_ROWS, 1).setNumberFormat('$#,##0.00');
+    }
+  });
+}
+
+function applyMilestoneTrackerValidation_(sheet, headers) {
+  var statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Pending', 'Funded', 'Delivered', 'Released'], true)
+    .setAllowInvalid(false)
+    .build();
+  var statusCol = headers.indexOf('Status') + 1;
+  if (statusCol > 0) {
+    sheet.getRange(2, statusCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(statusRule);
+  }
+
+  var amountCol = headers.indexOf('Amount') + 1;
+  if (amountCol > 0) {
+    sheet.getRange(2, amountCol, FORMULA_PREFILL_ROWS, 1).setNumberFormat('$#,##0.00');
+  }
+}
+
+// Amount is script-computed on Hours_Logged edit (see 14_Edit_Trigger.gs's
+// HOURLY_LOG block) -- this just formats the two number columns so entries
+// look right from the first row, no dropdown needed (no status here).
+function applyHourlyLogValidation_(sheet, headers) {
+  var amountCol = headers.indexOf('Amount') + 1;
+  if (amountCol > 0) {
+    sheet.getRange(2, amountCol, FORMULA_PREFILL_ROWS, 1).setNumberFormat('$#,##0.00');
+  }
+
+  var hoursCol = headers.indexOf('Hours_Logged') + 1;
+  if (hoursCol > 0) {
+    sheet.getRange(2, hoursCol, FORMULA_PREFILL_ROWS, 1).setNumberFormat('0.00');
   }
 }
 
 function applyProposalGeneratorFormulas_(sheet, headers) {
   var portfolioMap = getPortfolioMapFromSettings_();
-  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, portfolioMap);
+  var primaryTools = (getSettings_()['Primary_Tools'] || '');
+  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, portfolioMap, primaryTools);
 
   if (formulas.toolDetectedFormula) {
-    sheet.getRange(2, formulas.toolDetectedCol).setFormula(formulas.toolDetectedFormula);
+    sheet.getRange(2, formulas.toolDetectedCol, FORMULA_PREFILL_ROWS, 1).setFormula(formulas.toolDetectedFormula);
   }
   if (formulas.portfolioProjectFormula) {
-    sheet.getRange(2, formulas.portfolioProjectCol).setFormula(formulas.portfolioProjectFormula);
+    sheet.getRange(2, formulas.portfolioProjectCol, FORMULA_PREFILL_ROWS, 1).setFormula(formulas.portfolioProjectFormula);
   }
+}
+
+function applyJobDiscoveryFormulas_(sheet, headers) {
+  var settings      = getSettings_();
+  var primaryTools  = settings['Primary_Tools'] || '';
+  var formulas      = FFLib.buildJobDiscoveryFormulas(headers, primaryTools);
+
+  var fields = [
+    'discoveryId', 'currentAgeDays', 'keywordFitScore', 'toolDetected', 'toolScore', 'experienceScore',
+    'freshnessScore', 'competitionScore', 'verificationScore', 'clientHistoryScore',
+    'budgetQuickScore', 'discoveryPriorityScore', 'discoveryAction', 'discoveryStatus'
+  ];
+
+  fields.forEach(function (field) {
+    var col     = formulas[field + 'Col'];
+    var formula = formulas[field + 'Formula'];
+    if (col && formula) {
+      var range = sheet.getRange(2, col, FORMULA_PREFILL_ROWS, 1);
+      range.setFormula(formula);
+      // Discovery_ID is a plain integer, but a column inserted next to a
+      // date column (Date_Found) can inherit date formatting from its
+      // neighbor -- forcing the format here means the row number displays
+      // correctly (1, 2, 3...) no matter how the column was created.
+      if (field === 'discoveryId') range.setNumberFormat('0');
+    }
+  });
+}
+
+function applyJobDiscoveryValidation_(sheet, headers) {
+  var budgetTypeCol = headers.indexOf('Budget_Type') + 1;
+  var payVerCol      = headers.indexOf('Payment_Verified') + 1;
+  var expLevelCol    = headers.indexOf('Experience_Level') + 1;
+  var propCountCol   = headers.indexOf('Proposal_Count') + 1;
+
+  if (budgetTypeCol > 0) {
+    var budgetTypeRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Fixed', 'Hourly_Range', 'Hourly_Unknown'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, budgetTypeCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(budgetTypeRule);
+  }
+
+  if (payVerCol > 0) {
+    var payVerRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Yes', 'No'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, payVerCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(payVerRule);
+  }
+
+  if (expLevelCol > 0) {
+    var expLevelRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Entry Level', 'Intermediate', 'Expert'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, expLevelCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(expLevelRule);
+  }
+
+  if (propCountCol > 0) {
+    var propCountRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Fewer than 5', '5 to 10', '10 to 15', '15 to 20', '20 to 50', '50+'], true)
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(2, propCountCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(propCountRule);
+  }
+}
+
+function applyJobDiscoveryConditionalFormatting_(sheet, headers) {
+  var actionCol = headers.indexOf('Discovery_Action') + 1;
+  if (actionCol <= 0) return;
+
+  var actionLetter = colLetterClient_(actionCol);
+  var fullRange    = sheet.getRange(2, 1, FORMULA_PREFILL_ROWS, headers.length);
+
+  var rules = [
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + actionLetter + '2="Move to Scoring"')
+      .setBackground('#d9ead3')
+      .setRanges([fullRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + actionLetter + '2="Review Later"')
+      .setBackground('#fff2cc')
+      .setRanges([fullRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + actionLetter + '2="Skip"')
+      .setBackground('#f4cccc')
+      .setRanges([fullRange])
+      .build()
+  ];
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+function applyJobScoringConditionalFormatting_(sheet, headers) {
+  var decisionCol = headers.indexOf('Final_Decision') + 1;
+  if (decisionCol <= 0) return;
+
+  var decisionLetter = colLetterClient_(decisionCol);
+  var fullRange       = sheet.getRange(2, 1, FORMULA_PREFILL_ROWS, headers.length);
+
+  var rules = [
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + '2="APPLY"')
+      .setBackground('#d9ead3')
+      .setRanges([fullRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + '2="HOLD"')
+      .setBackground('#fff2cc')
+      .setRanges([fullRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + '2="SKIP"')
+      .setBackground('#f4cccc')
+      .setRanges([fullRange])
+      .build()
+  ];
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+// Client-side column-letter helper for conditional formatting ranges.
+// (Library's colLetter_ is private to the Library and not callable
+// cross-project -- this is the same trivial A1/A2.../AA logic.)
+function colLetterClient_(n) {
+  var s = '';
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
 }
 
 function getPortfolioMapFromSettings_() {

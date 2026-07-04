@@ -1,8 +1,14 @@
 /**
  * ============================================================
- * FreelanceFlow Library -- Quick Notes
+ * FreelanceFlow Library -- AI Job-Fit Classifier (Quick Notes)
  * AI-powered (with regex fallback) job complexity classifier.
- * Returns a formatted string: "Complexity, Scope & Tool Match"
+ * Returns a formatted string: "Effort, Scope & Portfolio Match"
+ *
+ * Niche-agnostic: judges Effort/Scope/Portfolio Match against
+ * THIS user's own Primary_Tools, Portfolio projects, and
+ * Freelancer_Background (passed in via settings), not a fixed
+ * BI-tool vocabulary -- same Settings-driven precedent as
+ * Job_Discovery's Tool_Detected/Tool_Score.
  *
  * getQuickNotes is the public entry point the thin client calls
  * (FFLib.getQuickNotes(...)). getQuickNotesRegex_ keeps its
@@ -11,29 +17,35 @@
  * stays internal to the Library and is not part of its public API.
  * ============================================================
  */
-function getQuickNotes(description, apiKey) {
+function getQuickNotes(description, apiKey, settings) {
+  var s             = settings || {};
+  var primaryTools  = s['Primary_Tools'] || '';
+  var portfolioCtx  = getPortfolioContext(s);
+
   if (!apiKey) {
-    return getQuickNotesRegex_(description);
+    return getQuickNotesRegex_(description, primaryTools);
   }
 
   var prompt =
-    "You are analyzing an Upwork job description for a data analytics freelancer. " +
-    "Read the description carefully and return exactly one line in this format: " +
-    "[Complexity], [Scope] & [Tool Match]. " +
+    "You are analyzing an Upwork job description for a freelancer. " +
+    "Judge the job against THIS freelancer's own profile below, not any generic skillset:\n" +
+    portfolioCtx + "\n\n" +
+    "Read the job description carefully and return exactly one line in this format: " +
+    "[Effort], [Scope] & [Portfolio Match]. " +
     "Rules: " +
-    "Complexity: Large=ETL/pipelines/APIs/data modeling/warehouse/Azure/automation/integrations. " +
-    "Complex=SQL/multiple dashboards/joins/merges/transformations/multiple BI tools. " +
-    "Normal=single dashboard/report/KPI tracker/spreadsheet/Excel/Looker Studio build. " +
-    "Simple=minor update or very small scope. " +
+    "Effort: Large=building an entire system/pipeline/workflow or multi-step automation from scratch. " +
+    "Complex=multiple interconnected deliverables, several stages of work, or more tools/steps than the freelancer's usual single deliverable. " +
+    "Normal=a single well-scoped deliverable that matches the freelancer's core listed tools/services. " +
+    "Simple=a minor fix, small update, or very small scope. " +
     "Scope: Clear=step-by-step requirements/specific examples/exact deliverables. " +
     "Mostly Clear=focused scope with some gaps. " +
     "Vague=general ask/no clear deliverable. " +
     "Very Vague=no clear scope at all. " +
-    "Tool Match: Exact=explicitly names Tableau/Power BI/Looker Studio/Excel dashboard. " +
-    "Strong=mentions a specific BI tool or KPI dashboard. " +
-    "Partial=mentions dashboard/reporting/analytics without naming a tool. " +
-    "Weak=tangentially related. " +
-    "None=org chart/presentation/graphic design. " +
+    "Portfolio Match: Exact=explicitly names one of the freelancer's own tools (" + primaryTools + ") or closely matches one of their listed portfolio projects. " +
+    "Strong=clearly falls within the freelancer's general niche/background even without naming their exact tool. " +
+    "Partial=related work but doesn't name or clearly imply the freelancer's tools or niche. " +
+    "Weak=only tangentially related to the freelancer's listed skills. " +
+    "None=unrelated to the freelancer's service line entirely. " +
     "Return ONLY the formatted result. No explanation. No extra text. Example: Normal, Mostly Clear & Strong. " +
     "Job description: " + description.substring(0, 1500);
 
@@ -54,39 +66,49 @@ function getQuickNotes(description, apiKey) {
     });
 
     var data = JSON.parse(response.getContentText());
-    if (data.error) return getQuickNotesRegex_(description);
+    if (data.error) return getQuickNotesRegex_(description, primaryTools);
 
     var result = data.choices && data.choices[0]
       ? data.choices[0].message.content.trim()
       : "";
 
-    return result || getQuickNotesRegex_(description);
+    return result || getQuickNotesRegex_(description, primaryTools);
 
   } catch (err) {
-    return getQuickNotesRegex_(description);
+    return getQuickNotesRegex_(description, primaryTools);
   }
 }
 
 
-function getQuickNotesRegex_(description) {
+function getQuickNotesRegex_(description, primaryToolsCsv) {
   if (!description) return "";
   var d = description;
 
-  var complexity =
-    /azure|etl|pipeline|api|data model|warehouse|automation|integrat/i.test(d) ? "Large" :
-    /sql|multiple dashboards|power bi|tableau|looker|ga4|join|merge|transform/i.test(d) ? "Complex" :
-    /dashboard|report|kpi|spreadsheet|excel|looker studio/i.test(d) ? "Normal" : "Simple";
+  var effort =
+    /pipeline|workflow automation|end-to-end system|integrat.*(and|with).*multiple|from scratch/i.test(d) ? "Large" :
+    /multiple deliverables|several (stages|steps|phases)|combine.*(and|with).*(clean|process)/i.test(d) ? "Complex" :
+    /help us|looking for|need someone|would like|update|fix|small/i.test(d) ? "Normal" : "Simple";
 
   var scope =
     /step-by-step|clearly defined|specific requirements|example outputs|exactly/i.test(d) ? "Clear" :
     /focused|scoped|improve|update|redesign/i.test(d) ? "Mostly Clear" :
     /help us|looking for|need someone|would like/i.test(d) ? "Vague" : "Very Vague";
 
-  var toolMatch =
-    /tableau dashboard|power bi dashboard|looker studio dashboard|excel dashboard/i.test(d) ? "Exact" :
-    /tableau|power bi|looker studio|excel|kpi dashboard/i.test(d) ? "Strong" :
-    /dashboard|reporting|analytics/i.test(d) ? "Partial" :
-    /org chart|presentation|graphic design/i.test(d) ? "None" : "Weak";
+  var tools = (primaryToolsCsv || '').split(',')
+    .map(function (t) { return t.trim(); })
+    .filter(function (t) { return t; });
 
-  return complexity + ", " + scope + " & " + toolMatch;
+  var toolMatch = "None";
+  var dLower = d.toLowerCase();
+  for (var i = 0; i < tools.length; i++) {
+    if (dLower.indexOf(tools[i].toLowerCase()) !== -1) {
+      toolMatch = "Exact";
+      break;
+    }
+  }
+  if (toolMatch === "None" && /dashboard|report|reporting|analytics|automation|bookkeeping|clean ?up/i.test(d)) {
+    toolMatch = "Partial";
+  }
+
+  return effort + ", " + scope + " & " + toolMatch;
 }

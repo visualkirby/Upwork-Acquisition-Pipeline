@@ -6,7 +6,7 @@
  *   Stage 1 -- Job_Discovery: Discovery_Action distribution
  *   Stage 2 -- Job_Scoring: Final_Decision distribution
  *   Stage 3 -- Proposal_Generator: Proposal_Status distribution
- *   Stage 4 -- Proposal_Tracker: Hired / Interview / Reply outcomes
+ *   Stage 4 -- Proposal_Tracker: Hired / Interview / Viewed outcomes
  *
  * getWorkflowAnalysis_: AI-powered per-job breakdown (used by
  *   other functions; kept here for future wiring).
@@ -107,7 +107,7 @@ function ANALYZE_JOB_WORKFLOW() {
   // ---- Stage 4: Proposal_Tracker -----------------------------
   var ptMap      = getHeaderMap_(ptSheet);
   var ptHiredCol = getCol_(ptMap, ["Hired"]);
-  var ptReplyCol = getCol_(ptMap, ["Client_Replied"]);
+  var ptReplyCol = getCol_(ptMap, ["Viewed"]);
   var ptIntCol   = getCol_(ptMap, ["Interview"]);
 
   var ptTotal    = 0;
@@ -181,8 +181,8 @@ function ANALYZE_JOB_WORKFLOW() {
     "STAGE 4 -- Outcomes (" + ptTotal + " proposals tracked)\n" +
     line("Hired (Y):      ", ptHiredY, ptTotal) + "\n" +
     line("Interview (Y):  ", ptIntY,   ptTotal) + "\n" +
-    line("Replied (Y):    ", ptReplyY, ptTotal) + "\n" +
-    line("No reply (N):   ", ptTotal - ptReplyY, ptTotal) + "\n\n" +
+    line("Viewed (Y):     ", ptReplyY, ptTotal) + "\n" +
+    line("Not viewed (N): ", ptTotal - ptReplyY, ptTotal) + "\n\n" +
 
     "END-TO-END CONVERSION\n" +
     "  Discovery -> Scoring:    " + pct(discToScoring, discTotal)  + "  (" + discToScoring + " / " + discTotal  + ")\n" +

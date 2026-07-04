@@ -176,6 +176,22 @@ textarea { resize: vertical; min-height: 70px; }
     <label>Job Success Score (%):</label>
     <input type="number" id="jss" placeholder="0" min="0" max="100">
 
+    <label>Your experience level on Upwork:</label>
+    <div class="radio-group">
+      <label class="radio-opt">
+        <input type="radio" name="expLevel" value="Entry Level">
+        <div class="radio-label"><strong>Entry Level</strong></div>
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="expLevel" value="Intermediate" checked>
+        <div class="radio-label"><strong>Intermediate</strong></div>
+      </label>
+      <label class="radio-opt">
+        <input type="radio" name="expLevel" value="Expert">
+        <div class="radio-label"><strong>Expert</strong></div>
+      </label>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-back" onclick="go(3)">Back</button>
       <button class="btn btn-next" onclick="saveProfile()">Next</button>
@@ -270,6 +286,7 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="next-steps">
         <strong>Start here:</strong>
         <ol>
+          <li>System Tools &rsaquo; Generate Keyword Strategy</li>
           <li>System Tools &rsaquo; Start Session</li>
           <li>Search Upwork using keywords in your Keyword_Search_List</li>
           <li>Paste each job description into Job_Discovery</li>
@@ -285,6 +302,7 @@ textarea { resize: vertical; min-height: 70px; }
 var cur = 1;
 var apiKeyValidated = false;
 var specialtyFilled = false;
+var generatedTemplates = [];
 
 function go(n) {
   if (n === 7) buildReview();
@@ -342,7 +360,8 @@ function suggestSetup() {
         document.getElementById('background').value    = r.background || '';
         document.getElementById('starter-kw').value   = Array.isArray(r.keywords) ? r.keywords.join(', ') : '';
         showSpecialtyFields();
-        clearEl('specialty-status');
+        status('specialty-status','Designing your proposal templates...','loading');
+        generateTemplates(desc, r.tools, r.background, key);
       } else {
         status('specialty-status', r.message, 'error');
         showSpecialtyFields();
@@ -354,6 +373,23 @@ function suggestSetup() {
       showSpecialtyFields();
     })
     .wizard_analyzeNiche(desc, key);
+}
+
+// Fires automatically after suggestSetup() succeeds -- generates niche-specific
+// Job_Type categories + template content. Non-blocking: if this fails, the
+// wizard still proceeds (Setup Wizard falls back to one generic template).
+function generateTemplates(desc, tools, background, key) {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.ok && Array.isArray(r.templates) && r.templates.length > 0) {
+        generatedTemplates = r.templates;
+      }
+      clearEl('specialty-status');
+    })
+    .withFailureHandler(function(e) {
+      clearEl('specialty-status');
+    })
+    .wizard_generateTemplates(desc, tools, background, key);
 }
 
 function showManualSpecialty() {
@@ -422,6 +458,7 @@ function buildReview() {
     '<strong>Name:</strong> ' + (name || '&mdash;') + '<br>' +
     '<strong>Connect Balance:</strong> ' + (bal || '0') + '<br>' +
     '<strong>Scoring Profile:</strong> ' + profile + '<br>' +
+    '<strong>Experience Level:</strong> ' + document.querySelector('input[name=expLevel]:checked').value + '<br>' +
     '<strong>Primary Tools:</strong> ' + (tools || '&mdash;') + '<br>' +
     '<strong>Background:</strong> ' + (bg || '&mdash;') + '<br>' +
     '<strong>Portfolio Projects:</strong> ' + port.length;
@@ -446,11 +483,13 @@ function initialize() {
     contractsCompleted: Number(document.getElementById('contracts').value)        || 0,
     reviewsCount:       Number(document.getElementById('reviews').value)          || 0,
     jobSuccessScore:    Number(document.getElementById('jss').value)              || 0,
+    experienceLevel:    document.querySelector('input[name=expLevel]:checked').value,
     primaryTools:       document.getElementById('primary-tools').value.trim(),
     background:         document.getElementById('background').value.trim(),
     starterKeywords:    kws,
     scoringProfile:     document.querySelector('input[name=profile]:checked').value,
-    portfolio:          port
+    portfolio:          port,
+    generatedTemplates: generatedTemplates
   };
 
   if (!data.apiKey) { status('init-status','API key missing. Go back to Step 2.','error'); return; }

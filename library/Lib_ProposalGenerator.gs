@@ -19,6 +19,104 @@
  * ============================================================
  */
 
+/**
+ * Given a classified Job_Type, all Proposal_Templates rows, and aggregated
+ * Proposal_Tracker stats keyed by "TemplateID|Hook|CTA", picks a template
+ * row for RUN_JOB_CLASSIFICATION to write into Proposal_Generator.
+ *
+ * When more than one row matches the Job_Type (different Hook/CTA variants),
+ * selection is weighted by each variant's live View rate from Proposal_Tracker
+ * -- Laplace-smoothed (views+1)/(sent+2) so an untested variant starts at a
+ * neutral 50/50 instead of 0, and a proven variant gets picked more often
+ * without ever fully losing its shot at more data. Falls back to the
+ * Is_Default-flagged row when nothing matches the Job_Type at all.
+ *
+ * templateRows: [{templateId, jobType, hookVersion, ctaVersion, isDefault}, ...]
+ * trackerStats: { "T1|A|A": {sent: 5, viewed: 3}, ... }
+ */
+function pickWeightedTemplate(jobType, templateRows, trackerStats) {
+  var stats   = trackerStats || {};
+  var matches = (templateRows || []).filter(function (r) { return r.jobType === jobType; });
+
+  if (matches.length === 0) {
+    var fallback = (templateRows || []).filter(function (r) { return r.isDefault; });
+    return fallback.length > 0 ? fallback[0] : null;
+  }
+
+  if (matches.length === 1) return matches[0];
+
+  var weights = matches.map(function (r) {
+    var key = r.templateId + '|' + r.hookVersion + '|' + r.ctaVersion;
+    var s   = stats[key] || { sent: 0, viewed: 0 };
+    return (s.viewed + 1) / (s.sent + 2);
+  });
+
+  var total = weights.reduce(function (a, b) { return a + b; }, 0);
+  var roll  = Math.random() * total;
+  var acc   = 0;
+  for (var i = 0; i < matches.length; i++) {
+    acc += weights[i];
+    if (roll <= acc) return matches[i];
+  }
+  return matches[matches.length - 1];
+}
+
+
+/**
+ * Some Upwork jobs add extra client-specified application questions beyond
+ * the main cover letter. questions is whatever raw text the freelancer
+ * pasted into Additional_Questions (however many questions, however
+ * formatted) -- returns each one repeated verbatim with its answer, so
+ * there's no need to parse/count them into fixed columns.
+ */
+function generateAdditionalAnswers(questions, jobTitle, description, portfolioContext, freelancerName, apiKey) {
+  if (!apiKey) return 'API key not set. Run System Tools > Setup API Key first.';
+  if (!questions) return '';
+
+  var prompt =
+    'You are answering additional application questions for an Upwork job proposal -- the main cover letter is written separately. ' +
+    'FREELANCER: ' + (freelancerName || 'the freelancer') + '. ' +
+    'PORTFOLIO AND BACKGROUND: ' + (portfolioContext || '') + ' ' +
+    'JOB TITLE: ' + jobTitle + '. ' +
+    'JOB DESCRIPTION: ' + String(description || '').substring(0, 1000) + '. ' +
+    'Answer each question below directly and specifically, in the order given. ' +
+    'Keep each answer under 40 words -- no filler, no restating the question, no greeting. ' +
+    'Format your response as each question repeated verbatim, followed by your answer on the next line, ' +
+    'with a blank line between question/answer pairs. ' +
+    'Answer ONLY the exact question(s) listed below -- do not invent, add, or answer any question ' +
+    'that is not explicitly listed, even if it seems like a typical one for this kind of job. ' +
+    'If only one question is listed, return only that one question and its answer. ' +
+    'QUESTIONS:\n' + questions;
+
+  var payload = {
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 400,
+    temperature: 0.4
+  };
+
+  try {
+    var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bearer ' + apiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    var data = JSON.parse(response.getContentText());
+    if (data.error) return 'API error: ' + data.error.message;
+
+    return data.choices && data.choices[0]
+      ? data.choices[0].message.content.trim()
+      : 'No response returned.';
+
+  } catch (err) {
+    return 'Request failed: ' + err.message;
+  }
+}
+
+
 function getPortfolioContext(settings) {
   var s     = settings || {};
   var name  = s['Freelancer_Name']       || 'the freelancer';

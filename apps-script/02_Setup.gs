@@ -55,9 +55,10 @@ function TEST_JOB_TYPE_API() {
 
   ui.alert("API key found. Length: " + apiKey.length + "\nFirst 8 chars: " + apiKey.substring(0, 8));
 
-  var testDesc  = "We are looking for a skilled developer to build a new Power BI dashboard tracking sales KPIs.";
-  var testTitle = "Power BI Dashboard Developer";
-  var result    = FFLib.getJobType(testDesc, testTitle, apiKey);
+  var testDesc     = "We are looking for a skilled developer to build a new Power BI dashboard tracking sales KPIs.";
+  var testTitle    = "Power BI Dashboard Developer";
+  var categoryList = getJobTypeCategories_(getProposalTemplateRows_());
+  var result       = FFLib.getJobType(testDesc, testTitle, apiKey, categoryList);
 
   ui.alert("Test classification result: \"" + result + "\"\n\n" +
     (result ? "API call working correctly." : "API call returned empty -- check key or quota."));

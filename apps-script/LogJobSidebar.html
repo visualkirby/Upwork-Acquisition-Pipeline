@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wrap { padding: 16px; }
+
+.header { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 18px; font-weight: 700; color: #05467c; }
+.tagline { font-size: 11px; color: #888; margin-top: 2px; }
+
+.step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
+.step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
+
+label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; margin-top: 12px; }
+label.sub { font-weight: 400; color: #555; margin-top: 6px; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+input:focus, select:focus, textarea:focus { border-color: #03a6a5; }
+textarea { resize: vertical; min-height: 90px; }
+
+.row2 { display: flex; gap: 8px; }
+.row2 > div { flex: 1; }
+
+.btn-row { display: flex; gap: 8px; margin-top: 18px; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-save { background: #03a6a5; color: #fff; flex: 1; }
+.btn-save:hover { background: #028888; }
+.btn-save:disabled { background: #bbb; cursor: not-allowed; }
+
+.status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.ok      { background: #e8f5e9; color: #2e7d32; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+
+.info-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-size: 12px; line-height: 1.5; color: #333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="logo">FreelanceFlow</div>
+    <div class="tagline">Log New Job</div>
+  </div>
+
+  <div id="walkthrough-box"></div>
+
+  <label>Job Title</label>
+  <input type="text" id="job-title" placeholder="e.g. Bookkeeper Needed for QuickBooks Cleanup">
+
+  <label>Description</label>
+  <textarea id="description" placeholder="Paste the full job description here"></textarea>
+
+  <div class="row2">
+    <div>
+      <label>Client Name</label>
+      <input type="text" id="client-name">
+    </div>
+    <div>
+      <label>Job Link</label>
+      <input type="text" id="job-link">
+    </div>
+  </div>
+
+  <label>Keyword Search</label>
+  <input type="text" id="keyword-search" placeholder="Which search found this job">
+
+  <div class="row2">
+    <div>
+      <label>Experience Level</label>
+      <select id="experience-level">
+        <option value="Entry Level">Entry Level</option>
+        <option value="Intermediate" selected>Intermediate</option>
+        <option value="Expert">Expert</option>
+      </select>
+    </div>
+    <div>
+      <label>Proposal Count</label>
+      <select id="proposal-count">
+        <option value="Fewer than 5">Fewer than 5</option>
+        <option value="5 to 10">5 to 10</option>
+        <option value="10 to 15">10 to 15</option>
+        <option value="15 to 20">15 to 20</option>
+        <option value="20 to 50">20 to 50</option>
+        <option value="50+">50+</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div>
+      <label>Budget Type</label>
+      <select id="budget-type">
+        <option value="Fixed">Fixed</option>
+        <option value="Hourly_Range">Hourly Range</option>
+        <option value="Hourly_Unknown">Hourly Unknown</option>
+      </select>
+    </div>
+    <div>
+      <label>Payment Verified</label>
+      <select id="payment-verified">
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div>
+      <label>Budget</label>
+      <input type="number" id="budget" step="0.01">
+    </div>
+    <div>
+      <label>Hourly Rate</label>
+      <input type="number" id="hourly-rate" step="0.01">
+    </div>
+  </div>
+
+  <div class="row2">
+    <div>
+      <label>Client Hires</label>
+      <input type="number" id="client-hires">
+    </div>
+    <div>
+      <label>Connects Required</label>
+      <input type="number" id="connects-required">
+    </div>
+  </div>
+
+  <label>Days Since Posted</label>
+  <div class="row2">
+    <div>
+      <label class="sub">Days</label>
+      <input type="number" id="days-since-posted">
+    </div>
+    <div>
+      <label class="sub">Hours</label>
+      <input type="number" id="hours-since-posted">
+    </div>
+    <div>
+      <label class="sub">Minutes</label>
+      <input type="number" id="minutes-since-posted">
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-save" id="btn-save" onclick="saveJob()">Log Job</button>
+  </div>
+
+  <div id="status"></div>
+
+</div>
+
+<script>
+function clearEl(id) { document.getElementById(id).innerHTML = ''; }
+function status(id, msg, type) {
+  document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+}
+function val(id) { return document.getElementById(id).value.trim(); }
+function num(id) { return Number(document.getElementById(id).value) || 0; }
+
+function init() {
+  google.script.run
+    .withSuccessHandler(function (r) {
+      if (r.showWalkthrough) {
+        document.getElementById('walkthrough-box').innerHTML =
+          '<div class="info-box">Paste in a job you found on Upwork here. ' +
+          'Once saved, FreelanceFlow scores it automatically in Job_Scoring -- ' +
+          'you don\'t need to touch anything else on this sheet by hand.</div>';
+      }
+    })
+    .withFailureHandler(function () {})
+    .jobDiscovery_getContext();
+}
+
+function saveJob() {
+  var data = {
+    jobTitle:          val('job-title'),
+    description:       val('description'),
+    clientName:        val('client-name'),
+    jobLink:           val('job-link'),
+    keywordSearch:     val('keyword-search'),
+    experienceLevel:   val('experience-level'),
+    proposalCount:     val('proposal-count'),
+    budgetType:        val('budget-type'),
+    paymentVerified:   val('payment-verified'),
+    budget:            num('budget'),
+    hourlyRate:        num('hourly-rate'),
+    clientHires:       num('client-hires'),
+    connectsRequired:  num('connects-required'),
+    daysSincePosted:   num('days-since-posted'),
+    hoursSincePosted:  num('hours-since-posted'),
+    minutesSincePosted: num('minutes-since-posted')
+  };
+
+  if (!data.jobTitle)    { status('status', 'Enter a job title.', 'error'); return; }
+  if (!data.description) { status('status', 'Paste the job description.', 'error'); return; }
+
+  document.getElementById('btn-save').disabled = true;
+  status('status', 'Saving and analyzing fit...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-save').disabled = false;
+      if (r.ok) {
+        status('status', 'Job logged. Clear this form to log another.', 'ok');
+      } else {
+        status('status', r.message, 'error');
+      }
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-save').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .job_saveEntry(data);
+}
+
+init();
+</script>
+</body>
+</html>

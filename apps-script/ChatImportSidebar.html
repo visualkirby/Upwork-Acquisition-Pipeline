@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wrap { padding: 16px; }
+
+.header { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 18px; font-weight: 700; color: #05467c; }
+.tagline { font-size: 11px; color: #888; margin-top: 2px; }
+
+.step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
+.step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
+
+label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; margin-top: 12px; }
+select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+select:focus, textarea:focus { border-color: #03a6a5; }
+textarea { resize: vertical; min-height: 220px; }
+
+.btn-row { display: flex; gap: 8px; margin-top: 18px; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-save { background: #03a6a5; color: #fff; flex: 1; }
+.btn-save:hover { background: #028888; }
+.btn-save:disabled { background: #bbb; cursor: not-allowed; }
+
+.status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.ok      { background: #e8f5e9; color: #2e7d32; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+
+.empty-msg { font-size: 12px; color: #777; padding: 10px 0; line-height: 1.6; }
+.info-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-size: 12px; line-height: 1.5; color: #333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="logo">FreelanceFlow</div>
+    <div class="tagline">Import Client Chat</div>
+  </div>
+
+  <div id="walkthrough-box"></div>
+
+  <div id="main-content">
+    <div class="step-title">Which conversation?</div>
+    <div class="step-desc">
+      Copy the full chat thread from Upwork's message view and paste it below.
+      Re-pasting later replaces this job's messages with the fresh copy, so
+      always paste the whole current conversation, not just new lines.
+    </div>
+
+    <label>Job / Client</label>
+    <select id="job-select"></select>
+
+    <label>Pasted transcript</label>
+    <textarea id="transcript" placeholder="Sharon Samson&#10;2:32 PM&#10;Hello and thanks for your proposal...&#10;&#10;Sawandi Kirby&#10;5:04 PM&#10;Hello, how are you today?"></textarea>
+
+    <div class="btn-row">
+      <button class="btn btn-save" id="btn-save" onclick="saveTranscript()">Parse &amp; Save</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <div id="empty-content" style="display:none">
+    <div class="empty-msg">No jobs with Interview = Y yet. Once a client replies and you mark Interview as Y in Proposal_Tracker, that job will show up here.</div>
+  </div>
+
+</div>
+
+<script>
+function clearEl(id) { document.getElementById(id).innerHTML = ''; }
+function status(id, msg, type) {
+  document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+}
+
+function init() {
+  google.script.run
+    .withSuccessHandler(function (r) {
+      if (r.showWalkthrough) {
+        document.getElementById('walkthrough-box').innerHTML =
+          '<div class="info-box">This sidebar parses a pasted Upwork chat transcript into ' +
+          'Client_Chat_Log, one row per message. Re-pasting later replaces this job\'s messages ' +
+          'with the fresh copy -- always paste the whole current conversation, not just new lines.</div>';
+      }
+      var select = document.getElementById('job-select');
+      if (!r.jobs || r.jobs.length === 0) {
+        document.getElementById('main-content').style.display = 'none';
+        document.getElementById('empty-content').style.display = 'block';
+        return;
+      }
+      r.jobs.forEach(function (j) {
+        var opt = document.createElement('option');
+        opt.value = j.discoveryId;
+        opt.textContent = j.jobTitle + ' -- ' + j.clientName;
+        select.appendChild(opt);
+      });
+      if (r.pendingDiscoveryId) select.value = r.pendingDiscoveryId;
+    })
+    .withFailureHandler(function (e) {
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .chat_getContext();
+}
+
+function saveTranscript() {
+  var discoveryId = document.getElementById('job-select').value;
+  var rawText     = document.getElementById('transcript').value.trim();
+
+  if (!discoveryId) { status('status', 'Pick a job first.', 'error'); return; }
+  if (!rawText)      { status('status', 'Paste a transcript first.', 'error'); return; }
+
+  document.getElementById('btn-save').disabled = true;
+  status('status', 'Parsing transcript...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-save').disabled = false;
+      if (r.ok) {
+        status('status', 'Saved ' + r.count + ' messages.', 'ok');
+      } else {
+        status('status', r.message, 'error');
+      }
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-save').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .chat_parseTranscript(discoveryId, rawText);
+}
+
+init();
+</script>
+</body>
+</html>

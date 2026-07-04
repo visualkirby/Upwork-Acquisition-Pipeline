@@ -1,28 +1,29 @@
 /**
  * ============================================================
  * FreelanceFlow Library -- Job Classifier
- * Classifies a job into one of four categories, with a regex
- * fallback when no API key is available or the AI call fails.
+ * Classifies a job into one of the freelancer's own niche-derived
+ * Job_Type categories (from Proposal_Templates, seeded at setup by
+ * Lib_WizardAI's generateNicheTemplates) -- not a fixed universal
+ * list. categories: [{name, notes}, ...], notes optional -- doubles
+ * as classifier guidance and human documentation in the sheet.
+ * Falls back to the first category with no API key or on failure.
  * ============================================================
  */
-function getJobType(description, jobTitle, apiKey) {
-  function regexFallback_() {
-    var t = (jobTitle + " " + description).toLowerCase();
-    if (/fix|improve|update|modify|redesign|optimize|existing/.test(t)) return "Dashboard Fix";
-    if (/clean|spreadsheet|raw data|data cleaning|csv|excel file|export/.test(t)) return "Data to Dashboard";
-    if (/report|analysis|analytics(?! dashboard)|insight/.test(t) && !/dashboard/.test(t)) return "Reporting";
-    return "Dashboard Build";
+function getJobType(description, jobTitle, apiKey, categories) {
+  var cats = (categories && categories.length > 0) ? categories : [{ name: 'General', notes: '' }];
+
+  function fallback_() {
+    return cats[0].name;
   }
 
-  if (!apiKey) return regexFallback_();
+  if (!apiKey) return fallback_();
+
+  var categoryText = cats.map(function (c) {
+    return c.notes ? (c.name + ' (' + c.notes + ')') : c.name;
+  }).join('; ');
 
   var prompt =
-    "Classify this Upwork job into exactly one of these four categories: " +
-    "Dashboard Build, Dashboard Fix, Data to Dashboard, Reporting. " +
-    "Dashboard Build = new dashboard needed from scratch. " +
-    "Dashboard Fix = existing dashboard needs fixing or improving. " +
-    "Data to Dashboard = raw data needs cleaning then turned into a dashboard. " +
-    "Reporting = data analysis or reporting without a dashboard. " +
+    "Classify this Upwork job into exactly one of these categories: " + categoryText + ". " +
     "Reply with only the category name and nothing else. " +
     "Job: " + jobTitle + ". " + description.substring(0, 800);
 
@@ -41,17 +42,16 @@ function getJobType(description, jobTitle, apiKey) {
     });
 
     var parsed = JSON.parse(response.getContentText());
-    if (!parsed.choices || !parsed.choices[0]) return regexFallback_();
+    if (!parsed.choices || !parsed.choices[0]) return fallback_();
 
     var text = parsed.choices[0].message.content.trim();
 
-    if (text.indexOf("Data to Dashboard") !== -1) return "Data to Dashboard";
-    if (text.indexOf("Dashboard Fix")     !== -1) return "Dashboard Fix";
-    if (text.indexOf("Dashboard Build")   !== -1) return "Dashboard Build";
-    if (text.indexOf("Reporting")         !== -1) return "Reporting";
-    return regexFallback_();
+    for (var i = 0; i < cats.length; i++) {
+      if (text.indexOf(cats[i].name) !== -1) return cats[i].name;
+    }
+    return fallback_();
 
   } catch (err) {
-    return regexFallback_();
+    return fallback_();
   }
 }

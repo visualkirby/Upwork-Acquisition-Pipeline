@@ -15,7 +15,7 @@ function colorDuplicateJobLinks() {
   var skipCol = getCol_(map, ['Discovery_Action']);
   if (!linkCol) return;
 
-  var lastRow  = sheet.getLastRow();
+  var lastRow  = getLastRealRow_(sheet);
   var lastCol  = sheet.getLastColumn();
   var startRow = 2;
   if (lastRow < startRow) return;

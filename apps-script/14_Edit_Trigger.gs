@@ -1,14 +1,30 @@
 /**
  * ============================================================
  * 14. MAIN EDIT TRIGGER
- * Handles all sheet-specific onEdit automation:
- *   Job_Discovery  -- auto-timestamp, session stamp, Quick_Notes, dupe check
+ * Handles all sheet-specific edit automation:
+ *   Job_Discovery  -- auto-timestamp, session stamp, AI_Fit_Notes, dupe check
  *   Job_Scoring    -- date stamp on title entry, APPLY auto-proposal
  *   Connects_Helper -- replenishment accumulation + date stamp
- *   Proposal_Generator -- bid recommendation, proposal regen, Sent -> Tracker/Followup
+ *   Proposal_Tracker -- Viewed/Interview/Hired feed Connects_Helper's MTD_Replies/
+ *                       MTD_Interviews/MTD_Hires; Interview=Y opens Chat Import,
+ *                       Hired=Y opens Contract Setup. Revenue is manual/informational only.
+ *   Milestone_Tracker -- Status date-stamps (Funded/Delivered/Released); Released feeds revenue
+ *   Contract_Tracker -- Status=Completed rolls up Total_Released; Ended Early prompts for reconciliation
+ *   Hourly_Log -- Hours_Logged computes Amount from Contract_Tracker's rate, feeds revenue by delta
+ *   Proposal_Generator -- bid recommendation, proposal regen, Sent -> Proposal_Tracker
+ *
+ * Named handleEdit (not onEdit) so Apps Script never auto-registers it as
+ * a simple trigger. Simple triggers run in a restricted authorization mode
+ * that can't call UrlFetchApp, so every AI call here would randomly fail
+ * (or race against the installable trigger and overwrite its result with
+ * an error) if this were ever named onEdit. registerEditTrigger_() in
+ * 00_Setup_Wizard.gs installs this as an installable trigger instead, which
+ * always runs with full authorization. Not trailing-underscored either --
+ * ScriptApp.newTrigger() must reference it by name, and private (_-suffixed)
+ * functions are excluded from the trigger function picker.
  * ============================================================
  */
-function onEdit(e) {
+function handleEdit(e) {
   if (!e || !e.range) return;
 
   var ss        = e.source;
@@ -59,13 +75,21 @@ function onEdit(e) {
           }
         }
 
-        var quickNotesCol = getCol_(map, ["Quick_Notes"]);
-        if (quickNotesCol) {
-          sheet.getRange(row, quickNotesCol).setValue("Analyzing...");
-          var qnApiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
-          var quickResult = FFLib.getQuickNotes(cleanedText || rawText, qnApiKey);
-          sheet.getRange(row, quickNotesCol).setValue(quickResult);
+        var aiFitNotesCol = getCol_(map, ["AI_Fit_Notes"]);
+        if (aiFitNotesCol) {
+          sheet.getRange(row, aiFitNotesCol).setValue("Analyzing...");
+          var qnApiKey  = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+          var qnSettings = getSettings_();
+          var quickResult = FFLib.getQuickNotes(cleanedText || rawText, qnApiKey, qnSettings);
+          sheet.getRange(row, aiFitNotesCol).setValue(quickResult);
         }
+
+        showWalkthroughOnce_(
+          "FF_WALKTHROUGH_JOB_DISCOVERY_SEEN",
+          "First job logged!",
+          "AI_Fit_Notes just analyzed how well this job matches your profile.\n\n" +
+          "Next: head to Job_Scoring to score this job and decide whether to apply."
+        );
       }
     }
 
@@ -111,11 +135,24 @@ function onEdit(e) {
     var dateScoredCol      = getCol_(map, ["Date_Scored"]);
     var finalDecisionCol   = getCol_(map, ["Final_Decision"]);
     var proposalGenDateCol = getCol_(map, ["Proposal_Generator_Date"]);
+    var descColJS          = getCol_(map, ["Description"]);
+    var aiFitNotesColJS    = getCol_(map, ["AI_Fit_Notes"]);
 
     if (jobTitleColJS && col === jobTitleColJS && dateScoredCol) {
       var dateScoredCell = sheet.getRange(row, dateScoredCol);
       if (dateScoredCell.getValue() === "") {
         dateScoredCell.setValue(new Date());
+      }
+    }
+
+    if (descColJS && col === descColJS && aiFitNotesColJS) {
+      var jsDescText = sheet.getRange(row, descColJS).getValue();
+      if (jsDescText !== "" && jsDescText !== null && jsDescText !== undefined) {
+        sheet.getRange(row, aiFitNotesColJS).setValue("Analyzing...");
+        var jsQnApiKey   = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+        var jsQnSettings = getSettings_();
+        var jsQuickResult = FFLib.getQuickNotes(jsDescText, jsQnApiKey, jsQnSettings);
+        sheet.getRange(row, aiFitNotesColJS).setValue(jsQuickResult);
       }
     }
 
@@ -125,6 +162,13 @@ function onEdit(e) {
 
       if (finalDecision === "APPLY" && proposalGenDateCell.getValue() === "") {
         proposalGenDateCell.setValue(new Date());
+
+        showWalkthroughOnce_(
+          "FF_WALKTHROUGH_JOB_SCORING_SEEN",
+          "First job scored APPLY!",
+          "This job is strong enough to apply to, so it's being sent to Proposal_Generator.\n\n" +
+          "Next: head to Proposal_Generator to review and send the AI-drafted proposal."
+        );
 
         var jsMap2         = getHeaderMap_(sheet);
         var jsTitleCol2    = getCol_(jsMap2, ["Job_Title"]);
@@ -141,8 +185,9 @@ function onEdit(e) {
         var aiProposalCount = jsProposalCol2 ? sheet.getRange(row, jsProposalCol2).getValue() : "";
         var aiBudget        = jsBudgetCol2   ? sheet.getRange(row, jsBudgetCol2).getValue()   : "";
 
-        var jtApiKey  = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
-        var aiJobType = FFLib.getJobType(aiDescription, aiJobTitle, jtApiKey);
+        var jtApiKey     = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+        var jtCategories = getJobTypeCategories_(getProposalTemplateRows_());
+        var aiJobType    = FFLib.getJobType(aiDescription, aiJobTitle, jtApiKey, jtCategories);
 
         if (aiJobTitle && aiDescription) {
           var pgSheet = ss.getSheetByName("Proposal_Generator");
@@ -245,18 +290,234 @@ function onEdit(e) {
   }
 
   // ----------------------------------------------------------
+  // PROPOSAL_TRACKER
+  // Viewed/Interview/Hired flipping to "Y" for the first time feeds
+  // Connects_Helper's MTD_Replies/MTD_Interviews/MTD_Hires -- guarded on
+  // oldValue so re-saving an already-"Y" cell doesn't double count, same
+  // guard style as Connect_Replenishment above. Revenue uses a delta
+  // instead, since it's a manually-entered number that may get corrected
+  // after the fact rather than a one-time flag.
+  //
+  // Uses e.value/e.oldValue (the snapshot pair for THIS specific edit),
+  // not a live sheet.getRange().getValue() re-read -- two edits landing
+  // on the same cell in quick succession (e.g. clear then retype) queue
+  // two async executions, and by the time either runs, a live read would
+  // see the SAME final value for both, pairing it against two different
+  // oldValues and double-counting the delta.
+  // ----------------------------------------------------------
+  if (sheetName === "Proposal_Tracker") {
+    var ptViewedCol    = getCol_(map, ["Viewed"]);
+    var ptInterviewCol = getCol_(map, ["Interview"]);
+    var ptHiredCol     = getCol_(map, ["Hired"]);
+    var ptIdCol        = getCol_(map, ["Discovery_ID"]);
+    var ptOldVal       = e.oldValue;
+    var ptNewVal       = e.value;
+
+    if (ptViewedCol && col === ptViewedCol && ptNewVal === "Y" && ptOldVal !== "Y") {
+      incrementConnectsHelperMetric_(ss, "MTD_Replies", 1);
+    }
+    if (ptInterviewCol && col === ptInterviewCol && ptNewVal === "Y" && ptOldVal !== "Y") {
+      incrementConnectsHelperMetric_(ss, "MTD_Interviews", 1);
+      // Client replied -- Upwork opens an ongoing chat thread at this point.
+      // Auto-open the Chat Import sidebar so the freelancer can paste it in
+      // right away instead of hunting for the menu item later.
+      if (ptIdCol) {
+        openChatImportSidebar_(sheet.getRange(row, ptIdCol).getValue());
+      }
+    }
+    if (ptHiredCol && col === ptHiredCol && ptNewVal === "Y" && ptOldVal !== "Y") {
+      incrementConnectsHelperMetric_(ss, "MTD_Hires", 1);
+      // Hired -- auto-open the Contract Setup sidebar so the freelancer can
+      // log the contract type and milestones right away. contract_saveSetup
+      // creates the Contract_Tracker row itself on submit, so nothing needs
+      // to be pre-created here.
+      if (ptIdCol) {
+        openContractSetupSidebar_(sheet.getRange(row, ptIdCol).getValue());
+      }
+    }
+    // Revenue is a plain manual/informational field here -- it no longer
+    // drives Connects_Helper. Milestone_Tracker's Released status and
+    // Hourly_Log entries are the authoritative revenue sources now (see the
+    // MILESTONE_TRACKER/CONTRACT_TRACKER/HOURLY_LOG blocks below), since
+    // they reflect the real escrow/payment lifecycle instead of a freeform
+    // number a freelancer might type in before funds have actually cleared.
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // MILESTONE_TRACKER
+  // Status transitions stamp their date column once, and only "Released"
+  // (funds actually paid out, not merely "Delivered") feeds Connects_Helper's
+  // revenue metrics -- delivering work and being paid are different moments
+  // in Upwork's real escrow flow, and counting revenue at Delivered would
+  // overstate income before it's certain.
+  // ----------------------------------------------------------
+  if (sheetName === "Milestone_Tracker") {
+    var msStatusCol = getCol_(map, ["Status"]);
+    if (msStatusCol && col === msStatusCol) {
+      var msOldVal = e.oldValue;
+      var msNewVal = e.value;
+
+      if (msNewVal === "Funded" && msOldVal !== "Funded") {
+        var msFundedCol = getCol_(map, ["Funded_Date"]);
+        if (msFundedCol && sheet.getRange(row, msFundedCol).getValue() === "") {
+          sheet.getRange(row, msFundedCol).setValue(new Date());
+        }
+      }
+      if (msNewVal === "Delivered" && msOldVal !== "Delivered") {
+        var msDeliveredCol = getCol_(map, ["Delivered_Date"]);
+        if (msDeliveredCol && sheet.getRange(row, msDeliveredCol).getValue() === "") {
+          sheet.getRange(row, msDeliveredCol).setValue(new Date());
+        }
+      }
+      if (msNewVal === "Released" && msOldVal !== "Released") {
+        var msReleasedCol = getCol_(map, ["Released_Date"]);
+        if (msReleasedCol && sheet.getRange(row, msReleasedCol).getValue() === "") {
+          sheet.getRange(row, msReleasedCol).setValue(new Date());
+        }
+        var msAmountCol = getCol_(map, ["Amount"]);
+        if (msAmountCol) {
+          var msAmountVal = Number(sheet.getRange(row, msAmountCol).getValue()) || 0;
+          incrementConnectsHelperMetric_(ss, "MTD_Revenue", msAmountVal);
+          incrementConnectsHelperMetric_(ss, "Monthly_Revenue", msAmountVal);
+        }
+      }
+    }
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // CONTRACT_TRACKER
+  // Status -> Completed computes a Total_Released rollup for a clean final
+  // total on the row (sum of this contract's Released milestones, or its
+  // Hourly_Log entries) -- no separate Connects_Helper push here, since
+  // those amounts already fed revenue individually as each one cleared.
+  // Status -> Ended Early runs a short manual reconciliation prompt, since
+  // a contract ending early has no clean milestone/hourly trail to sum.
+  // ----------------------------------------------------------
+  if (sheetName === "Contract_Tracker") {
+    var ctStatusCol = getCol_(map, ["Status"]);
+    if (ctStatusCol && col === ctStatusCol) {
+      var ctOldVal      = e.oldValue;
+      var ctNewVal      = e.value;
+      var ctIdCol       = getCol_(map, ["Discovery_ID"]);
+      var ctTypeCol     = getCol_(map, ["Contract_Type"]);
+      var ctTotalRelCol = getCol_(map, ["Total_Released"]);
+      var ctDiscoveryId = ctIdCol ? sheet.getRange(row, ctIdCol).getValue() : "";
+      var ctType        = ctTypeCol ? sheet.getRange(row, ctTypeCol).getValue() : "";
+
+      if (ctNewVal === "Completed" && ctOldVal !== "Completed" && ctTotalRelCol) {
+        var ctTotal = 0;
+        if (ctType === "Fixed") {
+          var ctMsSheet = ss.getSheetByName("Milestone_Tracker");
+          if (ctMsSheet && ctMsSheet.getLastRow() > 1) {
+            var ctMsMap       = getHeaderMap_(ctMsSheet);
+            var ctMsIdCol     = getCol_(ctMsMap, ["Discovery_ID"]);
+            var ctMsStatusCol = getCol_(ctMsMap, ["Status"]);
+            var ctMsAmountCol = getCol_(ctMsMap, ["Amount"]);
+            var ctMsData = ctMsSheet.getRange(2, 1, ctMsSheet.getLastRow() - 1, ctMsSheet.getLastColumn()).getValues();
+            ctMsData.forEach(function (r) {
+              if (String(r[ctMsIdCol - 1]) === String(ctDiscoveryId) && r[ctMsStatusCol - 1] === "Released") {
+                ctTotal += Number(r[ctMsAmountCol - 1]) || 0;
+              }
+            });
+          }
+        } else if (ctType === "Hourly") {
+          var ctHlSheet = ss.getSheetByName("Hourly_Log");
+          if (ctHlSheet && ctHlSheet.getLastRow() > 1) {
+            var ctHlMap       = getHeaderMap_(ctHlSheet);
+            var ctHlIdCol     = getCol_(ctHlMap, ["Discovery_ID"]);
+            var ctHlAmountCol = getCol_(ctHlMap, ["Amount"]);
+            var ctHlData = ctHlSheet.getRange(2, 1, ctHlSheet.getLastRow() - 1, ctHlSheet.getLastColumn()).getValues();
+            ctHlData.forEach(function (r) {
+              if (String(r[ctHlIdCol - 1]) === String(ctDiscoveryId)) {
+                ctTotal += Number(r[ctHlAmountCol - 1]) || 0;
+              }
+            });
+          }
+        }
+        sheet.getRange(row, ctTotalRelCol).setValue(ctTotal);
+      }
+
+      if (ctNewVal === "Ended Early" && ctOldVal !== "Ended Early") {
+        var ctUi = SpreadsheetApp.getUi();
+        var ctAmountResponse = ctUi.prompt(
+          "Contract Ended Early",
+          "Enter the actual amount funded/received for this contract (0 if none):",
+          ctUi.ButtonSet.OK_CANCEL
+        );
+        if (ctAmountResponse.getSelectedButton() === ctUi.Button.OK) {
+          var ctEndedAmount = Number(ctAmountResponse.getResponseText()) || 0;
+          var ctReleasedResponse = ctUi.prompt(
+            "Contract Ended Early",
+            "Were those funds released to you? (Y/N)",
+            ctUi.ButtonSet.OK_CANCEL
+          );
+          var ctReleased = ctReleasedResponse.getSelectedButton() === ctUi.Button.OK &&
+            String(ctReleasedResponse.getResponseText()).trim().toUpperCase() === "Y";
+
+          if (ctTotalRelCol) {
+            sheet.getRange(row, ctTotalRelCol).setValue(ctEndedAmount);
+          }
+          if (ctReleased && ctEndedAmount > 0) {
+            incrementConnectsHelperMetric_(ss, "MTD_Revenue", ctEndedAmount);
+            incrementConnectsHelperMetric_(ss, "Monthly_Revenue", ctEndedAmount);
+          }
+        }
+      }
+    }
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // HOURLY_LOG
+  // Amount is script-computed (not a live formula) from Hours_Logged x this
+  // contract's Hourly_Rate, looked up from Contract_Tracker by Discovery_ID.
+  // A formula wouldn't work here -- e.value/e.oldValue only capture the cell
+  // actually edited (Hours_Logged), not a dependent formula cell, so there'd
+  // be no way to compute the delta needed to avoid double-counting a
+  // correction. Delta-based, same safety pattern the old
+  // Proposal_Tracker.Revenue trigger used.
+  // ----------------------------------------------------------
+  if (sheetName === "Hourly_Log") {
+    var hlHoursCol = getCol_(map, ["Hours_Logged"]);
+    if (hlHoursCol && col === hlHoursCol) {
+      var hlIdCol     = getCol_(map, ["Discovery_ID"]);
+      var hlAmountCol = getCol_(map, ["Amount"]);
+      var hlHoursVal  = Number(e.value) || 0;
+
+      if (hlIdCol && hlAmountCol) {
+        var hlDiscoveryId = sheet.getRange(row, hlIdCol).getValue();
+        var hlRate        = getContractHourlyRate_(ss, hlDiscoveryId);
+        var hlNewAmount   = hlHoursVal * hlRate;
+        var hlOldAmount   = Number(sheet.getRange(row, hlAmountCol).getValue()) || 0;
+        var hlDelta       = hlNewAmount - hlOldAmount;
+
+        sheet.getRange(row, hlAmountCol).setValue(hlNewAmount);
+        if (hlDelta !== 0) {
+          incrementConnectsHelperMetric_(ss, "MTD_Revenue", hlDelta);
+          incrementConnectsHelperMetric_(ss, "Monthly_Revenue", hlDelta);
+        }
+      }
+    }
+    return;
+  }
+
+  // ----------------------------------------------------------
   // PROPOSAL_GENERATOR
   // ----------------------------------------------------------
   if (sheetName === "Proposal_Generator") {
 
-    // Bid recommendation fires when Bid_3rd is entered
-    var bid3Col = getCol_(map, ["Bid_3rd"]);
-    if (bid3Col && col === bid3Col) {
-      var bid3Val = sheet.getRange(row, bid3Col).getValue();
-      if (bid3Val !== "" && bid3Val !== null) {
+    // Bid recommendation fires when Bid_4th is entered -- Upwork shows the
+    // top 4 competing bids, so that's the last one visible before deciding.
+    var bid4Col = getCol_(map, ["Bid_4th"]);
+    if (bid4Col && col === bid4Col) {
+      var bid4Val = sheet.getRange(row, bid4Col).getValue();
+      if (bid4Val !== "" && bid4Val !== null) {
         var pgMap2       = map;
         var bid1Col      = getCol_(pgMap2, ["Bid_1st"]);
         var bid2Col      = getCol_(pgMap2, ["Bid_2nd"]);
+        var bid3Col      = getCol_(pgMap2, ["Bid_3rd"]);
         var baseConCol   = getCol_(pgMap2, ["Connects_Required"]);
         var propCountCol = getCol_(pgMap2, ["Proposal_Count"]);
         var titleCol2    = getCol_(pgMap2, ["Job_Title"]);
@@ -264,6 +525,7 @@ function onEdit(e) {
 
         var bid1Val      = bid1Col      ? sheet.getRange(row, bid1Col).getValue()      : "";
         var bid2Val      = bid2Col      ? sheet.getRange(row, bid2Col).getValue()      : "";
+        var bid3Val      = bid3Col      ? sheet.getRange(row, bid3Col).getValue()      : "";
         var baseConVal   = baseConCol   ? sheet.getRange(row, baseConCol).getValue()   : "";
         var propCountVal = propCountCol ? sheet.getRange(row, propCountCol).getValue() : "";
         var titleVal     = titleCol2    ? sheet.getRange(row, titleCol2).getValue()    : "";
@@ -298,7 +560,7 @@ function onEdit(e) {
             var bidNoBoostMinScore = parseFloat(bidSettings['Apply_Min_Score'])   || 0.60;
             recommendation = FFLib.getBidRecommendation(
               titleVal, baseConVal, propCountVal,
-              totalScoreVal, bid1Val, bid2Val, bid3Val,
+              totalScoreVal, bid1Val, bid2Val, bid3Val, bid4Val,
               bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore
             );
           } catch (err) {
@@ -313,6 +575,17 @@ function onEdit(e) {
     var boostColPG = getCol_(map, ["Boost_Connects"]);
     if (boostColPG && col === boostColPG) {
       var boostVal = sheet.getRange(row, boostColPG).getValue();
+
+      // Total_Connects_Spent = base connects + boost, recalculated every
+      // time Boost_Connects changes, independent of whether the proposal
+      // regen conditions below are met.
+      var totalSpentColPG = getCol_(map, ["Total_Connects_Spent"]);
+      var connReqColPG    = getCol_(map, ["Connects_Required"]);
+      if (totalSpentColPG && connReqColPG) {
+        var connReqValPG = sheet.getRange(row, connReqColPG).getValue();
+        sheet.getRange(row, totalSpentColPG).setValue((Number(connReqValPG) || 0) + (Number(boostVal) || 0));
+      }
+
       if (boostVal !== "" && boostVal !== null) {
         var pgMap3       = map;
         var titleColPG   = getCol_(pgMap3, ["Job_Title"]);
@@ -359,7 +632,39 @@ function onEdit(e) {
       }
     }
 
-    // Proposal_Status = "Sent" -> write to Proposal_Tracker + Followup_Tracker
+    // Additional_Answers regenerates whenever Additional_Questions changes --
+    // always regenerates (not just once), matching Boost_Connects' regen-on-
+    // any-edit pattern above, since the freelancer may add or edit a line
+    // after already getting an answer back.
+    var questionsColPG = getCol_(map, ["Additional_Questions"]);
+    if (questionsColPG && col === questionsColPG) {
+      var questionsVal = sheet.getRange(row, questionsColPG).getValue();
+      var answersColPG = getCol_(map, ["Additional_Answers"]);
+
+      if (questionsVal !== "" && questionsVal !== null && answersColPG) {
+        var titleColAQ = getCol_(map, ["Job_Title"]);
+        var descColAQ  = getCol_(map, ["Description"]);
+        var titleValAQ = titleColAQ ? sheet.getRange(row, titleColAQ).getValue() : "";
+        var descValAQ  = descColAQ  ? sheet.getRange(row, descColAQ).getValue()  : "";
+
+        sheet.getRange(row, answersColPG).setValue("Drafting answers...");
+        var answersResult;
+        try {
+          var aqApiKey         = getApiKey_();
+          var aqSettings       = getSettings_();
+          var aqPortfolioCtx   = FFLib.getPortfolioContext(aqSettings);
+          var aqFreelancerName = aqSettings['Freelancer_Name'] || 'the freelancer';
+          answersResult = FFLib.generateAdditionalAnswers(
+            questionsVal, titleValAQ, descValAQ, aqPortfolioCtx, aqFreelancerName, aqApiKey
+          );
+        } catch (err) {
+          answersResult = err.message;
+        }
+        sheet.getRange(row, answersColPG).setValue(answersResult);
+      }
+    }
+
+    // Proposal_Status = "Sent" -> write to Proposal_Tracker
     var proposalStatusCol   = getCol_(map, ["Proposal_Status"]);
     var proposalSentDateCol = getCol_(map, ["Proposal_Sent_Date"]);
     var proposalSkipDateCol = getCol_(map, ["Proposal_Skip_Date"]);
@@ -385,16 +690,15 @@ function onEdit(e) {
     if (proposalSentDateCell.getValue() !== "") return;
 
     var tracker  = ss.getSheetByName("Proposal_Tracker");
-    var followup = ss.getSheetByName("Followup_Tracker");
     var scoring  = ss.getSheetByName("Job_Scoring");
 
-    if (!tracker || !followup || !scoring) return;
+    if (!tracker || !scoring) return;
 
     var pgMap = map;
     var ptMap = getHeaderMap_(tracker);
-    var ftMap = getHeaderMap_(followup);
     var jsMap = getHeaderMap_(scoring);
 
+    var discoveryId        = getCellValue_(sheet, row, pgMap, ["Discovery_ID"]);
     var dateInGenerator    = getCellValue_(sheet, row, pgMap, ["Date"]);
     var jobTitle           = getCellValue_(sheet, row, pgMap, ["Job_Title"]);
     var clientName         = getCellValue_(sheet, row, pgMap, ["Client_Name", "Client Name"]);
@@ -505,33 +809,11 @@ function onEdit(e) {
       return false;
     }
 
-    function existsInFollowupTracker_() {
-      var fJobCol      = getCol_(ftMap, ["Job_Title"]);
-      var fClientCol   = getCol_(ftMap, ["Client_Name", "Client Name"]);
-      var fTemplateCol = getCol_(ftMap, ["Template_Used"]);
-
-      if (!fJobCol || !fClientCol || !fTemplateCol) return false;
-
-      var lastRealRow = followup.getLastRow();
-      if (lastRealRow < 2) return false;
-
-      var data = followup.getRange(2, 1, lastRealRow - 1, followup.getLastColumn()).getValues();
-      for (var i = 0; i < data.length; i++) {
-        if (
-          data[i][fJobCol      - 1] === jobTitle     &&
-          data[i][fClientCol   - 1] === clientName   &&
-          data[i][fTemplateCol - 1] === templateUsed
-        ) {
-          return true;
-        }
-      }
-      return false;
-    }
-
     if (!existsInProposalTracker_()) {
       var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
       var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
 
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
@@ -543,7 +825,7 @@ function onEdit(e) {
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
       setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Replied"],                  "N");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
@@ -555,28 +837,24 @@ function onEdit(e) {
       var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
       setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
-    }
 
-    if (!existsInFollowupTracker_()) {
-      var fJobTitleCol    = getCol_(ftMap, ["Job_Title"]);
-      var nextFollowupRow = findFirstEmptyRowByColumn_(followup, fJobTitleCol);
-
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Date_Applied"],               appliedDate);
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Job_Title"],                  jobTitle);
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Client_Name", "Client Name"], clientName);
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Template_Used"],              templateUsed);
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup1_Sent"],             "");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup1_Template"],         "F1");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup2_Sent"],             "");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup2_Template"],         "F2");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup3_Sent"],             "");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Followup3_Template"],         "F3");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Client_Replied"],             "N");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Interview"],                  "N");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Hired"],                      "N");
-      setCellValue_(followup, nextFollowupRow, ftMap, ["Notes"],                      notes);
+      // Connects_Helper's MTD/Total metrics only ever move here, at the
+      // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
+      // block is already guarded to run once per row, so no double count.
+      incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
+      incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
+      incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
     }
 
     proposalSentDateCell.setValue(sentDate);
+
+    showWalkthroughOnce_(
+      "FF_WALKTHROUGH_PROPOSAL_SENT_SEEN",
+      "First proposal sent!",
+      "This job now shows up in Proposal_Tracker so you can track what happens next.\n\n" +
+      "When the client views your proposal, mark Viewed. When they reply, mark Interview -- " +
+      "that automatically opens a sidebar to import the chat. When you're hired, mark Hired -- " +
+      "that automatically opens a sidebar to log the contract."
+    );
   }
 }
