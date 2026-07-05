@@ -110,6 +110,16 @@ function formatTime_(date) {
 // (Milestone Released, Hourly_Log delta, Ended Early, Proposal_Tracker row
 // creation) -- without a lock, two overlapping executions can both read the
 // same "current" value before either writes, and one increment gets lost.
+//
+// SpreadsheetApp.flush() before releasing the lock is not optional here --
+// Apps Script batches pending spreadsheet writes rather than committing them
+// immediately, so releasing the lock right after setValue() can let the next
+// execution acquire the lock and read this value before the write actually
+// lands. Verified via testing on 2026-07-05: with the lock but no flush, two
+// rapid Proposal_Tracker "Sent" edits each successfully appended their own
+// row (a separate fix), but only one of their two increments here actually
+// stuck -- the second execution's read of "current" was still the
+// pre-increment value.
 function incrementConnectsHelperMetric_(ss, metricName, amount) {
   if (!amount) return;
   var sheet = ss.getSheetByName('Connects_Helper');
@@ -125,6 +135,7 @@ function incrementConnectsHelperMetric_(ss, metricName, amount) {
       if (String(data[i][0]).trim() === metricName) {
         var current = Number(data[i][1]) || 0;
         sheet.getRange(i + 2, 2).setValue(current + amount);
+        SpreadsheetApp.flush();
         return;
       }
     }

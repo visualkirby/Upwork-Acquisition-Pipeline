@@ -900,6 +900,11 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
       ptSetCol(["Job_Link"],                        jobLink);
 
       tracker.appendRow(ptRowValues);
+      // Without this, the next concurrent execution's existsInProposalTracker_()
+      // check can run before this appended row is actually committed and read
+      // it as still not-existing -- same flush-before-release reasoning as
+      // incrementConnectsHelperMetric_ below.
+      SpreadsheetApp.flush();
 
       // Connects_Helper's MTD/Total metrics only ever move here, at the
       // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
