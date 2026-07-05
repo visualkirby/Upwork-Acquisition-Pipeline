@@ -409,35 +409,7 @@ function handleEdit(e) {
       var ctType        = ctTypeCol ? sheet.getRange(row, ctTypeCol).getValue() : "";
 
       if (ctNewVal === "Completed" && ctOldVal !== "Completed" && ctTotalRelCol) {
-        var ctTotal = 0;
-        if (ctType === "Fixed") {
-          var ctMsSheet = ss.getSheetByName("Milestone_Tracker");
-          if (ctMsSheet && ctMsSheet.getLastRow() > 1) {
-            var ctMsMap       = getHeaderMap_(ctMsSheet);
-            var ctMsIdCol     = getCol_(ctMsMap, ["Discovery_ID"]);
-            var ctMsStatusCol = getCol_(ctMsMap, ["Status"]);
-            var ctMsAmountCol = getCol_(ctMsMap, ["Amount"]);
-            var ctMsData = ctMsSheet.getRange(2, 1, ctMsSheet.getLastRow() - 1, ctMsSheet.getLastColumn()).getValues();
-            ctMsData.forEach(function (r) {
-              if (String(r[ctMsIdCol - 1]) === String(ctDiscoveryId) && r[ctMsStatusCol - 1] === "Released") {
-                ctTotal += Number(r[ctMsAmountCol - 1]) || 0;
-              }
-            });
-          }
-        } else if (ctType === "Hourly") {
-          var ctHlSheet = ss.getSheetByName("Hourly_Log");
-          if (ctHlSheet && ctHlSheet.getLastRow() > 1) {
-            var ctHlMap       = getHeaderMap_(ctHlSheet);
-            var ctHlIdCol     = getCol_(ctHlMap, ["Discovery_ID"]);
-            var ctHlAmountCol = getCol_(ctHlMap, ["Amount"]);
-            var ctHlData = ctHlSheet.getRange(2, 1, ctHlSheet.getLastRow() - 1, ctHlSheet.getLastColumn()).getValues();
-            ctHlData.forEach(function (r) {
-              if (String(r[ctHlIdCol - 1]) === String(ctDiscoveryId)) {
-                ctTotal += Number(r[ctHlAmountCol - 1]) || 0;
-              }
-            });
-          }
-        }
+        var ctTotal = getContractRecognizedRevenue_(ss, ctDiscoveryId, ctType);
         sheet.getRange(row, ctTotalRelCol).setValue(ctTotal);
       }
 
@@ -461,9 +433,19 @@ function handleEdit(e) {
           if (ctTotalRelCol) {
             sheet.getRange(row, ctTotalRelCol).setValue(ctEndedAmount);
           }
-          if (ctReleased && ctEndedAmount > 0) {
-            incrementConnectsHelperMetric_(ss, "MTD_Revenue", ctEndedAmount);
-            incrementConnectsHelperMetric_(ss, "Monthly_Revenue", ctEndedAmount);
+          if (ctReleased) {
+            // ctEndedAmount is the FINAL total ever received for this contract,
+            // not a new incremental payment -- some of it may already have been
+            // recognized (a Released milestone, or logged Hourly_Log entries)
+            // before the contract ended early. Only the delta beyond what's
+            // already fed into revenue should be added here, or a milestone
+            // released earlier gets double-counted.
+            var ctAlreadyRecognized = getContractRecognizedRevenue_(ss, ctDiscoveryId, ctType);
+            var ctDelta = ctEndedAmount - ctAlreadyRecognized;
+            if (ctDelta !== 0) {
+              incrementConnectsHelperMetric_(ss, "MTD_Revenue", ctDelta);
+              incrementConnectsHelperMetric_(ss, "Monthly_Revenue", ctDelta);
+            }
           }
         }
       }
@@ -480,26 +462,49 @@ function handleEdit(e) {
   // be no way to compute the delta needed to avoid double-counting a
   // correction. Delta-based, same safety pattern the old
   // Proposal_Tracker.Revenue trigger used.
+  //
+  // Reads Hours_Logged/Amount fresh off the sheet per row in e.range rather
+  // than trusting e.value/col -- a fast multi-cell commit (row-fill, paste,
+  // or several Tab-committed cells landing as one edit) reports e.range
+  // spanning multiple columns/rows with e.value undefined and col/row set to
+  // the range's top-left cell, not the cell that actually changed. Matching
+  // only col === hlHoursCol on that meant the whole block silently no-op'd
+  // for every row in a fast-entered batch (confirmed during the 2026-07-05
+  // walkthrough: 3 rows entered via rapid Tab-across-row all landed with a
+  // blank Amount and no revenue recorded, while slow one-field-at-a-time
+  // entry worked every time).
   // ----------------------------------------------------------
   if (sheetName === "Hourly_Log") {
     var hlHoursCol = getCol_(map, ["Hours_Logged"]);
-    if (hlHoursCol && col === hlHoursCol) {
-      var hlIdCol     = getCol_(map, ["Discovery_ID"]);
-      var hlAmountCol = getCol_(map, ["Amount"]);
-      var hlHoursVal  = Number(e.value) || 0;
+    if (!hlHoursCol) return;
 
-      if (hlIdCol && hlAmountCol) {
-        var hlDiscoveryId = sheet.getRange(row, hlIdCol).getValue();
-        var hlRate        = getContractHourlyRate_(ss, hlDiscoveryId);
-        var hlNewAmount   = hlHoursVal * hlRate;
-        var hlOldAmount   = Number(sheet.getRange(row, hlAmountCol).getValue()) || 0;
-        var hlDelta       = hlNewAmount - hlOldAmount;
+    var hlEditStartCol = e.range.getColumn();
+    var hlEditEndCol    = hlEditStartCol + e.range.getNumColumns() - 1;
+    if (hlHoursCol < hlEditStartCol || hlHoursCol > hlEditEndCol) return;
 
-        sheet.getRange(row, hlAmountCol).setValue(hlNewAmount);
-        if (hlDelta !== 0) {
-          incrementConnectsHelperMetric_(ss, "MTD_Revenue", hlDelta);
-          incrementConnectsHelperMetric_(ss, "Monthly_Revenue", hlDelta);
-        }
+    var hlIdCol     = getCol_(map, ["Discovery_ID"]);
+    var hlAmountCol = getCol_(map, ["Amount"]);
+    if (!hlIdCol || !hlAmountCol) return;
+
+    var hlEditStartRow = e.range.getRow();
+    var hlEditNumRows  = e.range.getNumRows();
+
+    for (var hlRow = hlEditStartRow; hlRow < hlEditStartRow + hlEditNumRows; hlRow++) {
+      if (hlRow <= 1) continue;
+
+      var hlHoursVal    = Number(sheet.getRange(hlRow, hlHoursCol).getValue()) || 0;
+      var hlDiscoveryId = sheet.getRange(hlRow, hlIdCol).getValue();
+      var hlRate        = getContractHourlyRate_(ss, hlDiscoveryId);
+      var hlNewAmount   = hlHoursVal * hlRate;
+      var hlOldAmount   = Number(sheet.getRange(hlRow, hlAmountCol).getValue()) || 0;
+      var hlDelta       = hlNewAmount - hlOldAmount;
+
+      if (hlNewAmount !== hlOldAmount) {
+        sheet.getRange(hlRow, hlAmountCol).setValue(hlNewAmount);
+      }
+      if (hlDelta !== 0) {
+        incrementConnectsHelperMetric_(ss, "MTD_Revenue", hlDelta);
+        incrementConnectsHelperMetric_(ss, "Monthly_Revenue", hlDelta);
       }
     }
     return;
@@ -839,41 +844,53 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
     return false;
   }
 
-  if (!existsInProposalTracker_()) {
-    var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
-    var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
+  // Locked because "check it doesn't exist yet, find the first empty row,
+  // write it" is a read-then-act sequence against the shared Proposal_Tracker
+  // sheet -- without a lock, two rows marked Sent within the same moment can
+  // both compute the same "first empty row" before either has written, and
+  // the second write clobbers the first (lost row, and MTD_Proposals_Sent
+  // still gets incremented for both).
+  var ptLock = LockService.getScriptLock();
+  ptLock.waitLock(30000);
+  try {
+    if (!existsInProposalTracker_()) {
+      var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
+      var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
 
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Keyword_Search"],                  keywordSearch);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Tool_Requested", "Tool_Detected"], toolRequested);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Days_Since_Posted"],               daysSincePosted);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Count"],                  proposalCount);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Total_Score"],                     totalScore);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Notes"],                           notes);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Age_Days"],                        ageDays);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Current_Age_Days"],                currentAgeDays);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Connects_Used"],                   connectsUsed);
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
-    var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
-    setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Keyword_Search"],                  keywordSearch);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Tool_Requested", "Tool_Detected"], toolRequested);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Days_Since_Posted"],               daysSincePosted);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Count"],                  proposalCount);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Total_Score"],                     totalScore);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Notes"],                           notes);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Age_Days"],                        ageDays);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Current_Age_Days"],                currentAgeDays);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Connects_Used"],                   connectsUsed);
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
+      var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
+      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
 
-    // Connects_Helper's MTD/Total metrics only ever move here, at the
-    // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
-    // path is already guarded to run once per row, so no double count.
-    incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
-    incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
-    incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
+      // Connects_Helper's MTD/Total metrics only ever move here, at the
+      // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
+      // path is already guarded to run once per row, so no double count.
+      incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
+      incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
+      incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
+    }
+  } finally {
+    ptLock.releaseLock();
   }
 
   proposalSentDateCell.setValue(sentDate);

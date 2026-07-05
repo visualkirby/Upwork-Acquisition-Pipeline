@@ -105,19 +105,31 @@ function formatTime_(date) {
 // column B) rather than header-column structured like the pipeline sheets, so
 // updating one of its running totals from another sheet's edit trigger means
 // scanning column A for the matching label rather than a header lookup.
+//
+// Locked because this is called from many concurrent-capable trigger paths
+// (Milestone Released, Hourly_Log delta, Ended Early, Proposal_Tracker row
+// creation) -- without a lock, two overlapping executions can both read the
+// same "current" value before either writes, and one increment gets lost.
 function incrementConnectsHelperMetric_(ss, metricName, amount) {
   if (!amount) return;
   var sheet = ss.getSheetByName('Connects_Helper');
   if (!sheet) return;
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
-  var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
-  for (var i = 0; i < data.length; i++) {
-    if (String(data[i][0]).trim() === metricName) {
-      var current = Number(data[i][1]) || 0;
-      sheet.getRange(i + 2, 2).setValue(current + amount);
-      return;
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === metricName) {
+        var current = Number(data[i][1]) || 0;
+        sheet.getRange(i + 2, 2).setValue(current + amount);
+        return;
+      }
     }
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -140,6 +152,46 @@ function getContractHourlyRate_(ss, discoveryId) {
     }
   }
   return 0;
+}
+
+// Sums the revenue already recognized for a contract -- Released milestones
+// for Fixed, all logged entries for Hourly. Used by 14_Edit_Trigger.gs's
+// Contract_Tracker block both to roll up Total_Released on Completed and to
+// find the delta still owed on Ended Early, so a contract that already had
+// some milestones/hours paid out doesn't get that revenue counted twice.
+function getContractRecognizedRevenue_(ss, discoveryId, contractType) {
+  var total = 0;
+
+  if (contractType === "Fixed") {
+    var msSheet = ss.getSheetByName("Milestone_Tracker");
+    if (msSheet && msSheet.getLastRow() > 1) {
+      var msMap       = getHeaderMap_(msSheet);
+      var msIdCol     = getCol_(msMap, ["Discovery_ID"]);
+      var msStatusCol = getCol_(msMap, ["Status"]);
+      var msAmountCol = getCol_(msMap, ["Amount"]);
+      var msData = msSheet.getRange(2, 1, msSheet.getLastRow() - 1, msSheet.getLastColumn()).getValues();
+      msData.forEach(function (r) {
+        if (String(r[msIdCol - 1]) === String(discoveryId) && r[msStatusCol - 1] === "Released") {
+          total += Number(r[msAmountCol - 1]) || 0;
+        }
+      });
+    }
+  } else if (contractType === "Hourly") {
+    var hlSheet = ss.getSheetByName("Hourly_Log");
+    if (hlSheet && hlSheet.getLastRow() > 1) {
+      var hlMap       = getHeaderMap_(hlSheet);
+      var hlIdCol     = getCol_(hlMap, ["Discovery_ID"]);
+      var hlAmountCol = getCol_(hlMap, ["Amount"]);
+      var hlData = hlSheet.getRange(2, 1, hlSheet.getLastRow() - 1, hlSheet.getLastColumn()).getValues();
+      hlData.forEach(function (r) {
+        if (String(r[hlIdCol - 1]) === String(discoveryId)) {
+          total += Number(r[hlAmountCol - 1]) || 0;
+        }
+      });
+    }
+  }
+
+  return total;
 }
 
 // First-session walkthrough plumbing. Checks+marks a one-time script-property
@@ -366,6 +418,14 @@ function showSessionYieldSummary_(ss) {
 function onSelectionChange(e) {
   if (!e || !e.range) return;
   if (e.range.getSheet().getName() !== 'Proposal_Generator') return;
+
+  // The Setup Wizard creates/activates every pipeline sheet as it builds
+  // them, including Proposal_Generator -- that alone counts as a "selection
+  // change" and fired this step mid-wizard, stacked on top of the keyword
+  // strategy summary dialog (confirmed during the 2026-07-05 walkthrough).
+  // Only fire once setup is actually done, so this stays the tour's last
+  // step instead of firing before the first one.
+  if (PropertiesService.getScriptProperties().getProperty('FF_SETUP_COMPLETE') !== 'true') return;
 
   showTourStep_(
     'FF_TOUR_STEP6_RUN_CLASSIFICATION_SEEN',
