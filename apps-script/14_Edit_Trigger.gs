@@ -467,24 +467,27 @@ function handleEdit(e) {
   // than trusting e.value/col -- a fast multi-cell commit (row-fill, paste,
   // or several Tab-committed cells landing as one edit) reports e.range
   // spanning multiple columns/rows with e.value undefined and col/row set to
-  // the range's top-left cell, not the cell that actually changed. Matching
-  // only col === hlHoursCol on that meant the whole block silently no-op'd
-  // for every row in a fast-entered batch (confirmed during the 2026-07-05
-  // walkthrough: 3 rows entered via rapid Tab-across-row all landed with a
-  // blank Amount and no revenue recorded, while slow one-field-at-a-time
-  // entry worked every time).
+  // the range's top-left cell, not the cell that actually changed.
+  //
+  // Recomputes for EVERY row in e.range regardless of which column was
+  // touched -- gating on "only if Hours_Logged is within the edited column
+  // range" (an earlier version of this fix) still lost rows. Confirmed via
+  // added logging on 2026-07-05: fast Tab-across-row entry can commit a
+  // row's cells as several separate single-cell edits, but Google Sheets
+  // silently never dispatched onEdit at all for that row's Discovery_ID or
+  // Hours_Logged cells specifically -- only the Job_Title/Log_Date columns'
+  // edits fired. No in-code range check can compensate for a trigger that
+  // never invokes. Instead, any edit anywhere on this sheet now recomputes
+  // Amount for every touched row from whatever Hours_Logged currently holds
+  // -- since at least one of a row's several cell commits reliably fires
+  // (confirmed in the same test), that's enough to self-heal the row even
+  // when the Hours_Logged cell's own edit event never arrives.
   // ----------------------------------------------------------
   if (sheetName === "Hourly_Log") {
-    var hlHoursCol = getCol_(map, ["Hours_Logged"]);
-    if (!hlHoursCol) return;
-
-    var hlEditStartCol = e.range.getColumn();
-    var hlEditEndCol    = hlEditStartCol + e.range.getNumColumns() - 1;
-    if (hlHoursCol < hlEditStartCol || hlHoursCol > hlEditEndCol) return;
-
+    var hlHoursCol  = getCol_(map, ["Hours_Logged"]);
     var hlIdCol     = getCol_(map, ["Discovery_ID"]);
     var hlAmountCol = getCol_(map, ["Amount"]);
-    if (!hlIdCol || !hlAmountCol) return;
+    if (!hlHoursCol || !hlIdCol || !hlAmountCol) return;
 
     var hlEditStartRow = e.range.getRow();
     var hlEditNumRows  = e.range.getNumRows();
@@ -494,6 +497,8 @@ function handleEdit(e) {
 
       var hlHoursVal    = Number(sheet.getRange(hlRow, hlHoursCol).getValue()) || 0;
       var hlDiscoveryId = sheet.getRange(hlRow, hlIdCol).getValue();
+      if (!hlDiscoveryId) continue;
+
       var hlRate        = getContractHourlyRate_(ss, hlDiscoveryId);
       var hlNewAmount   = hlHoursVal * hlRate;
       var hlOldAmount   = Number(sheet.getRange(hlRow, hlAmountCol).getValue()) || 0;
