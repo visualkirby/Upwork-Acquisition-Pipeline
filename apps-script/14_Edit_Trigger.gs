@@ -844,43 +844,57 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
     return false;
   }
 
-  // Locked because "check it doesn't exist yet, find the first empty row,
-  // write it" is a read-then-act sequence against the shared Proposal_Tracker
-  // sheet -- without a lock, two rows marked Sent within the same moment can
-  // both compute the same "first empty row" before either has written, and
-  // the second write clobbers the first (lost row, and MTD_Proposals_Sent
-  // still gets incremented for both).
+  // Locked because "check it doesn't exist yet, then write it" is a
+  // read-then-act sequence against the shared Proposal_Tracker sheet.
+  //
+  // A prior version of this fix found the "first empty row" via a manual
+  // full-column scan (findFirstEmptyRowByColumn_) and wrote each field with
+  // a separate setCellValue_ call. Verified via added logging on 2026-07-05
+  // that this still lost rows even with the lock in place: two rows marked
+  // Sent within the same moment both independently computed the SAME "first
+  // empty row" before either had written (confirmed via debug logs showing
+  // identical target rows from two concurrent executions ~1s apart), so the
+  // second write clobbered the first. appendRow() removes that race at its
+  // root -- Sheets determines the true current last row on its own server
+  // side at the moment of the call, instead of the script computing it in
+  // advance from an earlier snapshot read, so two near-simultaneous appends
+  // can't collide on the same target row the way two manual scans could.
   var ptLock = LockService.getScriptLock();
   ptLock.waitLock(30000);
   try {
     if (!existsInProposalTracker_()) {
-      var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
-      var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
+      var ptRowValues = new Array(tracker.getLastColumn()).fill("");
+      var ptSetCol = function (headerNames, value) {
+        var col = getCol_(ptMap, headerNames);
+        if (col) ptRowValues[col - 1] = value;
+      };
 
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Keyword_Search"],                  keywordSearch);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Tool_Requested", "Tool_Detected"], toolRequested);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Days_Since_Posted"],               daysSincePosted);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Count"],                  proposalCount);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Total_Score"],                     totalScore);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Notes"],                           notes);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Age_Days"],                        ageDays);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Current_Age_Days"],                currentAgeDays);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Connects_Used"],                   connectsUsed);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
+      ptSetCol(["Discovery_ID"],                    discoveryId);
+      ptSetCol(["Date_Applied"],                    appliedDate);
+      ptSetCol(["Job_Title"],                       jobTitle);
+      ptSetCol(["Client_Name", "Client Name"],      clientName);
+      ptSetCol(["Keyword_Search"],                  keywordSearch);
+      ptSetCol(["Tool_Requested", "Tool_Detected"], toolRequested);
+      ptSetCol(["Days_Since_Posted"],               daysSincePosted);
+      ptSetCol(["Proposal_Count"],                  proposalCount);
+      ptSetCol(["Total_Score"],                     totalScore);
+      ptSetCol(["Template_Used"],                   templateUsed);
+      ptSetCol(["Hook_Version"],                    hookVersion);
+      ptSetCol(["CTA_Version"],                     ctaVersion);
+      ptSetCol(["Viewed"],                          "N");
+      ptSetCol(["Interview"],                       "N");
+      ptSetCol(["Hired"],                           "N");
+      ptSetCol(["Revenue"],                         "");
+      ptSetCol(["Notes"],                           notes);
+      ptSetCol(["Age_Days"],                        ageDays);
+      ptSetCol(["Current_Age_Days"],                currentAgeDays);
+      ptSetCol(["Connects_Used"],                   connectsUsed);
+      ptSetCol(["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
       var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
+      ptSetCol(["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
+      ptSetCol(["Job_Link"],                        jobLink);
+
+      tracker.appendRow(ptRowValues);
 
       // Connects_Helper's MTD/Total metrics only ever move here, at the
       // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
