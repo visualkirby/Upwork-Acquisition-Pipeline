@@ -68,6 +68,14 @@ function START_SESSION() {
     'Session target: ' + yieldTarget + ' unique new jobs.\n' +
     'Go search Upwork -- every job you log will be tracked automatically.'
   );
+
+  showTourStep_(
+    'FF_TOUR_STEP3_LOG_JOB_SEEN',
+    'Start Logging Jobs',
+    'The Log New Job sidebar is opening now -- use it to log every job you find this session.'
+  );
+
+  openJobDiscoverySidebar_();
 }
 
 
@@ -261,7 +269,18 @@ function END_SESSION() {
     setCellValue_(logSheet, nextLogRow, logMap, ['Notes'],                 sessionNotes);
   }
 
-  prop.deleteAllProperties();
+  // Session-scoped keys only -- deleteAllProperties() previously wiped every
+  // script property on every End Session, including UPWORK_OPENAI_API_KEY,
+  // FF_SETUP_COMPLETE (reopening the wizard next onOpen), and every
+  // walkthrough/tour seen-flag.
+  prop.deleteProperty('SESSION_ACTIVE');
+  prop.deleteProperty('SESSION_ID');
+  prop.deleteProperty('SESSION_START_TIME');
+  prop.deleteProperty('SESSION_KEYWORDS');
+  prop.deleteProperty('SESSION_START_ROW_COUNT');
+  prop.deleteProperty('SESSION_DUPE_COUNT');
+  prop.deleteProperty('SESSION_YIELD_NOTIFIED');
+  prop.deleteProperty('SESSION_HALFWAY_NOTIFIED');
 
   var runLog =
     '════════════════════════════════\n' +

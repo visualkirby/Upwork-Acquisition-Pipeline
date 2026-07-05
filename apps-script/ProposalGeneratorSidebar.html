@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wrap { padding: 16px; }
+
+.header { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 18px; font-weight: 700; color: #05467c; }
+.tagline { font-size: 11px; color: #888; margin-top: 2px; }
+
+.step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
+.step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
+
+label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; margin-top: 12px; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+input:focus, select:focus, textarea:focus { border-color: #03a6a5; }
+textarea { resize: vertical; min-height: 70px; }
+
+.row2 { display: flex; gap: 8px; }
+.row2 > div { flex: 1; }
+
+.btn-row { display: flex; gap: 8px; margin-top: 18px; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-save { background: #03a6a5; color: #fff; flex: 1; }
+.btn-save:hover { background: #028888; }
+.btn-save:disabled { background: #bbb; cursor: not-allowed; }
+
+.status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.ok      { background: #e8f5e9; color: #2e7d32; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+
+.info-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-size: 12px; line-height: 1.5; color: #333; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="logo">FreelanceFlow</div>
+    <div class="tagline">Log Proposal Bid</div>
+  </div>
+
+  <label>Job</label>
+  <select id="job-picker" onchange="loadRow()">
+    <option value="">-- Select a job --</option>
+  </select>
+
+  <div id="recommendation-box"></div>
+
+  <label>Bid Amounts (top 4 competing bids shown on Upwork)</label>
+  <div class="row2">
+    <div>
+      <label class="sub">1st</label>
+      <input type="number" id="bid1" step="0.01">
+    </div>
+    <div>
+      <label class="sub">2nd</label>
+      <input type="number" id="bid2" step="0.01">
+    </div>
+  </div>
+  <div class="row2">
+    <div>
+      <label class="sub">3rd</label>
+      <input type="number" id="bid3" step="0.01">
+    </div>
+    <div>
+      <label class="sub">4th</label>
+      <input type="number" id="bid4" step="0.01">
+    </div>
+  </div>
+
+  <label>Boost Connects</label>
+  <input type="number" id="boost-connects" step="1">
+
+  <label>Proposal Status</label>
+  <select id="proposal-status">
+    <option value="">-- No change --</option>
+    <option value="Ready">Ready</option>
+    <option value="Sent">Sent</option>
+    <option value="Skip">Skip</option>
+  </select>
+
+  <label>Notes</label>
+  <textarea id="notes"></textarea>
+
+  <div class="btn-row">
+    <button class="btn btn-save" id="btn-save" onclick="saveEntry()">Save</button>
+  </div>
+
+  <div id="status"></div>
+
+</div>
+
+<script>
+function status(id, msg, type) {
+  document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+}
+function val(id) { return document.getElementById(id).value.trim(); }
+
+function clearFields() {
+  ['bid1', 'bid2', 'bid3', 'bid4', 'boost-connects', 'notes'].forEach(function (id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('proposal-status').value = '';
+  document.getElementById('recommendation-box').innerHTML = '';
+}
+
+function init() {
+  google.script.run
+    .withSuccessHandler(function (rows) {
+      var picker = document.getElementById('job-picker');
+      rows.forEach(function (r) {
+        var opt = document.createElement('option');
+        opt.value = r.discoveryId;
+        opt.textContent = r.label;
+        picker.appendChild(opt);
+      });
+    })
+    .withFailureHandler(function () {})
+    .proposal_getRows();
+}
+
+function loadRow() {
+  var discoveryId = val('job-picker');
+  clearFields();
+  if (!discoveryId) return;
+
+  status('status', 'Loading...', 'loading');
+  google.script.run
+    .withSuccessHandler(function (r) {
+      status('status', '', '');
+      document.getElementById('status').innerHTML = '';
+      if (!r.ok) { status('status', r.message, 'error'); return; }
+
+      document.getElementById('bid1').value = r.bid1;
+      document.getElementById('bid2').value = r.bid2;
+      document.getElementById('bid3').value = r.bid3;
+      document.getElementById('bid4').value = r.bid4;
+      document.getElementById('boost-connects').value = r.boostConnects;
+      document.getElementById('proposal-status').value = r.proposalStatus || '';
+      document.getElementById('notes').value = r.notes;
+
+      if (r.bidRecommendation) {
+        document.getElementById('recommendation-box').innerHTML =
+          '<div class="info-box"><b>Current recommendation:</b> ' + r.bidRecommendation + '</div>';
+      }
+    })
+    .withFailureHandler(function (e) {
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .proposal_getRowDetails(discoveryId);
+}
+
+function saveEntry() {
+  var discoveryId = val('job-picker');
+  if (!discoveryId) { status('status', 'Select a job first.', 'error'); return; }
+
+  var data = {
+    discoveryId:    discoveryId,
+    bid1:           val('bid1'),
+    bid2:           val('bid2'),
+    bid3:           val('bid3'),
+    bid4:           val('bid4'),
+    boostConnects:  val('boost-connects'),
+    proposalStatus: val('proposal-status'),
+    notes:          val('notes')
+  };
+
+  document.getElementById('btn-save').disabled = true;
+  status('status', 'Saving...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-save').disabled = false;
+      if (r.ok) {
+        status('status', 'Saved.', 'ok');
+        loadRow();
+      } else {
+        status('status', r.message, 'error');
+      }
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-save').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .proposal_saveEntry(data);
+}
+
+init();
+</script>
+</body>
+</html>

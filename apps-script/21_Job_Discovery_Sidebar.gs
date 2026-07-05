@@ -25,7 +25,28 @@ function LOG_NEW_JOB() {
 }
 
 function jobDiscovery_getContext() {
-  return { showWalkthrough: !showWalkthroughSeen_('FF_WALKTHROUGH_JOB_DISCOVERY_SIDEBAR_SEEN') };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ctx = buildSessionCountdown_(ss);
+  ctx.showWalkthrough = !showWalkthroughSeen_('FF_WALKTHROUGH_JOB_DISCOVERY_SIDEBAR_SEEN');
+  return ctx;
+}
+
+// Live countdown payload for the sidebar -- { sessionActive, yieldTarget,
+// loggedCount, remaining }. remaining/loggedCount are 0 when no session is
+// active (the sidebar still works stand-alone, same additive precedent as
+// direct cell paste).
+function buildSessionCountdown_(ss) {
+  var prop         = PropertiesService.getScriptProperties();
+  var sessionActive = prop.getProperty('SESSION_ACTIVE') === 'true';
+  var yieldTarget    = parseInt(getSettings_()['Session_Yield_Target']) || 8;
+  var loggedCount    = sessionActive ? getSessionJobCount_(ss, prop.getProperty('SESSION_ID')) : 0;
+
+  return {
+    sessionActive: sessionActive,
+    yieldTarget:   yieldTarget,
+    loggedCount:   loggedCount,
+    remaining:     Math.max(yieldTarget - loggedCount, 0)
+  };
 }
 
 function job_saveEntry(data) {
@@ -76,6 +97,17 @@ function job_saveEntry(data) {
       quickResult = err.message;
     }
     sheet.getRange(row, aiFitNotesCol).setValue(quickResult);
+
+    var parsedFit = parseAiFitNotes_(quickResult);
+    if (parsedFit) {
+      SpreadsheetApp.getUi().alert(
+        'AI Fit Notes',
+        'Effort Level = ' + parsedFit.effort + '\n' +
+        'Scope Rating = ' + parsedFit.scope + '\n' +
+        'Portfolio Match = ' + parsedFit.portfolio,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    }
   }
 
   if (active === 'true' && data.jobLink) {
@@ -101,5 +133,11 @@ function job_saveEntry(data) {
     colorDuplicateJobLinks();
   }
 
-  return { ok: true };
+  handleSessionHalfwayReached_(ss);
+  var sessionComplete = handleSessionYieldReached_(ss);
+
+  var result = buildSessionCountdown_(ss);
+  result.ok = true;
+  result.sessionComplete = sessionComplete;
+  return result;
 }

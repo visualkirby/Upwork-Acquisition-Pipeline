@@ -93,6 +93,21 @@ function wizard_initialize(data) {
   ensurePipelineSheets_(ss, data.starterKeywords || []);
   registerEditTrigger_();
 
+  // Auto-run the AI keyword strategy off the niche/portfolio just written to
+  // Settings, so Keyword_Strategy and Keyword_Search_List are already
+  // populated when the wizard closes -- no separate manual menu click needed.
+  // Wrapped so a failure here (bad key, quota, network) never blocks setup
+  // from completing; GENERATE_KEYWORD_STRATEGY() surfaces its own ui.alert
+  // on failure, same message you'd see running it from the menu later.
+  try {
+    GENERATE_KEYWORD_STRATEGY();
+  } catch (err) {
+    SpreadsheetApp.getUi().alert(
+      'Setup complete, but keyword strategy generation failed: ' + err.message + '\n\n' +
+      'Run System Tools > Generate Keyword Strategy to try again.'
+    );
+  }
+
   prop.setProperty('FF_SETUP_COMPLETE', 'true');
   return { ok: true };
 }

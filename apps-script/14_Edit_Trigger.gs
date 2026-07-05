@@ -90,6 +90,8 @@ function handleEdit(e) {
           "AI_Fit_Notes just analyzed how well this job matches your profile.\n\n" +
           "Next: head to Job_Scoring to score this job and decide whether to apply."
         );
+
+        handleSessionYieldReached_(ss);
       }
     }
 
@@ -505,132 +507,22 @@ function handleEdit(e) {
 
   // ----------------------------------------------------------
   // PROPOSAL_GENERATOR
+  // Per-behavior logic lives in computeBidRecommendation_/applyBoostConnects_/
+  // handleProposalStatusChange_ below (not inlined here) -- both this trigger
+  // AND the Proposal_Generator sidebar's proposal_saveEntry (22_Proposal_
+  // Generator_Sidebar.gs) need to fire the same automation, since script-
+  // driven writes from that sidebar never trigger handleEdit on their own.
   // ----------------------------------------------------------
   if (sheetName === "Proposal_Generator") {
 
     // Bid recommendation fires when Bid_4th is entered -- Upwork shows the
     // top 4 competing bids, so that's the last one visible before deciding.
     var bid4Col = getCol_(map, ["Bid_4th"]);
-    if (bid4Col && col === bid4Col) {
-      var bid4Val = sheet.getRange(row, bid4Col).getValue();
-      if (bid4Val !== "" && bid4Val !== null) {
-        var pgMap2       = map;
-        var bid1Col      = getCol_(pgMap2, ["Bid_1st"]);
-        var bid2Col      = getCol_(pgMap2, ["Bid_2nd"]);
-        var bid3Col      = getCol_(pgMap2, ["Bid_3rd"]);
-        var baseConCol   = getCol_(pgMap2, ["Connects_Required"]);
-        var propCountCol = getCol_(pgMap2, ["Proposal_Count"]);
-        var titleCol2    = getCol_(pgMap2, ["Job_Title"]);
-        var recCol       = getCol_(pgMap2, ["Bid_Recommendation"]);
-
-        var bid1Val      = bid1Col      ? sheet.getRange(row, bid1Col).getValue()      : "";
-        var bid2Val      = bid2Col      ? sheet.getRange(row, bid2Col).getValue()      : "";
-        var bid3Val      = bid3Col      ? sheet.getRange(row, bid3Col).getValue()      : "";
-        var baseConVal   = baseConCol   ? sheet.getRange(row, baseConCol).getValue()   : "";
-        var propCountVal = propCountCol ? sheet.getRange(row, propCountCol).getValue() : "";
-        var titleVal     = titleCol2    ? sheet.getRange(row, titleCol2).getValue()    : "";
-
-        var totalScoreVal  = "";
-        var scoringSheet2  = ss.getSheetByName("Job_Scoring");
-        if (scoringSheet2 && titleVal) {
-          var jsMap2      = getHeaderMap_(scoringSheet2);
-          var jsTitleCol2 = getCol_(jsMap2, ["Job_Title"]);
-          var jsScoreCol2 = getCol_(jsMap2, ["Total_Score"]);
-          if (jsTitleCol2 && jsScoreCol2 && scoringSheet2.getLastRow() > 1) {
-            var jsRows = scoringSheet2
-              .getRange(2, 1, scoringSheet2.getLastRow() - 1, scoringSheet2.getLastColumn())
-              .getValues();
-            for (var s = 0; s < jsRows.length; s++) {
-              if (String(jsRows[s][jsTitleCol2 - 1]).trim() === String(titleVal).trim()) {
-                totalScoreVal = jsRows[s][jsScoreCol2 - 1];
-                break;
-              }
-            }
-          }
-        }
-
-        if (recCol) {
-          sheet.getRange(row, recCol).setValue("Analyzing...");
-          var recommendation;
-          try {
-            var bidApiKey         = getApiKey_();
-            var bidSettings       = getSettings_();
-            var bidJourneyContext = FFLib.buildJourneyStage(bidSettings);
-            var bidNoBoostMaxProp  = parseInt(bidSettings['Apply_Max_Proposals']) || 35;
-            var bidNoBoostMinScore = parseFloat(bidSettings['Apply_Min_Score'])   || 0.60;
-            recommendation = FFLib.getBidRecommendation(
-              titleVal, baseConVal, propCountVal,
-              totalScoreVal, bid1Val, bid2Val, bid3Val, bid4Val,
-              bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore
-            );
-          } catch (err) {
-            recommendation = err.message;
-          }
-          sheet.getRange(row, recCol).setValue(recommendation);
-        }
-      }
-    }
+    if (bid4Col && col === bid4Col) computeBidRecommendation_(ss, sheet, row, map);
 
     // Proposal regen fires when Boost_Connects is entered
     var boostColPG = getCol_(map, ["Boost_Connects"]);
-    if (boostColPG && col === boostColPG) {
-      var boostVal = sheet.getRange(row, boostColPG).getValue();
-
-      // Total_Connects_Spent = base connects + boost, recalculated every
-      // time Boost_Connects changes, independent of whether the proposal
-      // regen conditions below are met.
-      var totalSpentColPG = getCol_(map, ["Total_Connects_Spent"]);
-      var connReqColPG    = getCol_(map, ["Connects_Required"]);
-      if (totalSpentColPG && connReqColPG) {
-        var connReqValPG = sheet.getRange(row, connReqColPG).getValue();
-        sheet.getRange(row, totalSpentColPG).setValue((Number(connReqValPG) || 0) + (Number(boostVal) || 0));
-      }
-
-      if (boostVal !== "" && boostVal !== null) {
-        var pgMap3       = map;
-        var titleColPG   = getCol_(pgMap3, ["Job_Title"]);
-        var descColPG    = getCol_(pgMap3, ["Description"]);
-        var toolColPG    = getCol_(pgMap3, ["Tool_Detected"]);
-        var jobTypeColPG = getCol_(pgMap3, ["Job_Type"]);
-        var tmplColPG    = getCol_(pgMap3, ["Recommended_Template"]);
-        var hookColPG    = getCol_(pgMap3, ["Hook_Version"]);
-        var ctaColPG     = getCol_(pgMap3, ["CTA_Version"]);
-        var aiPropColPG  = getCol_(pgMap3, ["AI_Generated_Proposal"]);
-
-        var pgTitle    = titleColPG   ? sheet.getRange(row, titleColPG).getValue()   : "";
-        var pgDesc     = descColPG    ? sheet.getRange(row, descColPG).getValue()    : "";
-        var pgTool     = toolColPG    ? sheet.getRange(row, toolColPG).getValue()    : "";
-        var pgJobType  = jobTypeColPG ? sheet.getRange(row, jobTypeColPG).getValue() : "";
-        var pgTemplate = tmplColPG    ? sheet.getRange(row, tmplColPG).getValue()    : "";
-        var pgHook     = hookColPG    ? sheet.getRange(row, hookColPG).getValue()    : "";
-        var pgCta      = ctaColPG     ? sheet.getRange(row, ctaColPG).getValue()     : "";
-
-        if (pgDesc && aiPropColPG) {
-          var tmplId  = String(pgTemplate).trim().substring(0, 2) || "T1";
-          var hookVer = pgHook || "A";
-          var ctaVer  = pgCta  || "A";
-
-          sheet.getRange(row, aiPropColPG).setValue("Drafting proposal...");
-          var aiProposal;
-          try {
-            var boostApiKey         = getApiKey_();
-            var boostSettings       = getSettings_();
-            var boostJourneyContext = FFLib.buildJourneyStage(boostSettings);
-            var boostTemplate       = lookupProposalTemplate_(tmplId, hookVer, ctaVer);
-            var boostFreelancerName = boostSettings['Freelancer_Name'] || 'the freelancer';
-            var boostProposalTone   = boostSettings['Proposal_Tone']   || 'Direct';
-            var boostPortfolioAll   = boostSettings['Portfolio_All']   || '';
-            aiProposal = FFLib.generateAIProposal(
-              pgTitle, pgDesc, pgTool, pgJobType, boostTemplate,
-              boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName
-            );
-          } catch (err) {
-            aiProposal = err.message;
-          }
-          sheet.getRange(row, aiPropColPG).setValue(aiProposal);
-        }
-      }
-    }
+    if (boostColPG && col === boostColPG) applyBoostConnects_(ss, sheet, row, map);
 
     // Additional_Answers regenerates whenever Additional_Questions changes --
     // always regenerates (not just once), matching Boost_Connects' regen-on-
@@ -664,197 +556,334 @@ function handleEdit(e) {
       }
     }
 
-    // Proposal_Status = "Sent" -> write to Proposal_Tracker
-    var proposalStatusCol   = getCol_(map, ["Proposal_Status"]);
-    var proposalSentDateCol = getCol_(map, ["Proposal_Sent_Date"]);
-    var proposalSkipDateCol = getCol_(map, ["Proposal_Skip_Date"]);
-
-    if (!proposalStatusCol) return;
-    if (col !== proposalStatusCol) return;
-
-    var proposalStatus = sheet.getRange(row, proposalStatusCol).getValue();
-
-    // Stamp skip date when status is set to Skip
-    if (proposalStatus === "Skip" && proposalSkipDateCol) {
-      var skipDateCell = sheet.getRange(row, proposalSkipDateCol);
-      if (skipDateCell.getValue() === "") {
-        skipDateCell.setValue(new Date());
-      }
-      return;
+    // Proposal_Status changing (Skip stamps a date; Sent syncs to Proposal_Tracker)
+    var proposalStatusCol = getCol_(map, ["Proposal_Status"]);
+    if (proposalStatusCol && col === proposalStatusCol) {
+      handleProposalStatusChange_(ss, sheet, row, map);
     }
-
-    if (proposalStatus !== "Sent") return;
-    if (!proposalSentDateCol) return;
-
-    var proposalSentDateCell = sheet.getRange(row, proposalSentDateCol);
-    if (proposalSentDateCell.getValue() !== "") return;
-
-    var tracker  = ss.getSheetByName("Proposal_Tracker");
-    var scoring  = ss.getSheetByName("Job_Scoring");
-
-    if (!tracker || !scoring) return;
-
-    var pgMap = map;
-    var ptMap = getHeaderMap_(tracker);
-    var jsMap = getHeaderMap_(scoring);
-
-    var discoveryId        = getCellValue_(sheet, row, pgMap, ["Discovery_ID"]);
-    var dateInGenerator    = getCellValue_(sheet, row, pgMap, ["Date"]);
-    var jobTitle           = getCellValue_(sheet, row, pgMap, ["Job_Title"]);
-    var clientName         = getCellValue_(sheet, row, pgMap, ["Client_Name", "Client Name"]);
-    var toolRequested      = getCellValue_(sheet, row, pgMap, ["Tool_Detected", "Tool_Requested"]);
-    var templateUsed       = getCellValue_(sheet, row, pgMap, ["Recommended_Template", "Template_Used"]);
-    var hookVersion        = getCellValue_(sheet, row, pgMap, ["Hook_Version"]);
-    var ctaVersion         = getCellValue_(sheet, row, pgMap, ["CTA_Version"]);
-    var notes              = getCellValue_(sheet, row, pgMap, ["Notes"]);
-    var jobLink            = getCellValue_(sheet, row, pgMap, ["Job_Link"]);
-    var boostConnects      = getCellValue_(sheet, row, pgMap, ["Boost_Connects"]);
-    var totalConnectsSpent = getCellValue_(sheet, row, pgMap, ["Total_Connects_Spent"]);
-
-    var scoringLastRow = scoring.getLastRow();
-    var scoringLastCol = scoring.getLastColumn();
-    var scoringData    = [];
-    if (scoringLastRow > 1 && scoringLastCol > 0) {
-      scoringData = scoring.getRange(2, 1, scoringLastRow - 1, scoringLastCol).getValues();
-    }
-
-    var keywordSearch    = "";
-    var daysSincePosted  = "";
-    var hoursSincePosted = "";
-    var proposalCount    = "";
-    var totalScore       = "";
-    var ageDays          = "";
-    var currentAgeDays   = "";
-    var connectsUsed     = totalConnectsSpent !== "" ? totalConnectsSpent
-                           : (boostConnects !== "" ? (Number(boostConnects) + 0) : "");
-
-    var jsJobTitleCol      = getCol_(jsMap, ["Job_Title"]);
-    var jsClientCol        = getCol_(jsMap, ["Client_Name", "Client Name"]);
-    var jsKeywordCol       = getCol_(jsMap, ["Keyword_Search"]);
-    var jsDaysCol          = getCol_(jsMap, ["Days_Since_Posted"]);
-    var jsHoursCol         = getCol_(jsMap, ["Hours_Since_Posted"]);
-    var jsProposalCountCol = getCol_(jsMap, ["Proposal_Count"]);
-    var jsConnectsCol      = getCol_(jsMap, ["Connects_Required"]);
-    var jsJobLinkCol       = getCol_(jsMap, ["Job_Link"]);
-    var jsTotalScoreCol    = getCol_(jsMap, ["Total_Score"]);
-    var jsDateScoredCol    = getCol_(jsMap, ["Date_Scored"]);
-
-    for (var i = 0; i < scoringData.length; i++) {
-      var rowTitle  = jsJobTitleCol ? scoringData[i][jsJobTitleCol - 1] : "";
-      var rowClient = jsClientCol   ? scoringData[i][jsClientCol   - 1] : "";
-
-      var titleMatch  = rowTitle === jobTitle;
-      var clientMatch = !clientName || !rowClient || rowClient === clientName;
-
-      if (titleMatch && clientMatch) {
-        keywordSearch    = jsKeywordCol       ? scoringData[i][jsKeywordCol       - 1] : "";
-        daysSincePosted  = jsDaysCol          ? scoringData[i][jsDaysCol          - 1] : "";
-        hoursSincePosted = jsHoursCol         ? scoringData[i][jsHoursCol         - 1] : "";
-        proposalCount    = jsProposalCountCol ? scoringData[i][jsProposalCountCol - 1] : "";
-        if (connectsUsed === "") {
-          connectsUsed = jsConnectsCol ? scoringData[i][jsConnectsCol - 1] : "";
-        }
-        if (!jobLink) {
-          jobLink = jsJobLinkCol ? scoringData[i][jsJobLinkCol - 1] : "";
-        }
-        totalScore = jsTotalScoreCol ? scoringData[i][jsTotalScoreCol - 1] : "";
-        if (jsDateScoredCol && scoringData[i][jsDateScoredCol - 1]) {
-          var scoredDate = new Date(scoringData[i][jsDateScoredCol - 1]);
-          var today      = new Date();
-          ageDays = Math.floor((today - scoredDate) / (1000 * 60 * 60 * 24));
-        }
-        if (jsDateScoredCol && scoringData[i][jsDateScoredCol - 1]) {
-          var anchorDate  = new Date(scoringData[i][jsDateScoredCol - 1]);
-          var now         = new Date();
-          var elapsedDays = (now - anchorDate) / (1000 * 60 * 60 * 24);
-          var hVal        = parseFloat(hoursSincePosted) || 0;
-          var dVal        = parseFloat(daysSincePosted)  || 0;
-          if (hVal > 0) {
-            currentAgeDays = Math.round(((hVal / 24) + elapsedDays) * 10) / 10;
-          } else if (dVal > 0) {
-            currentAgeDays = Math.round((dVal + elapsedDays) * 10) / 10;
-          }
-        }
-        break;
-      }
-    }
-
-    var sentDate    = new Date();
-    var appliedDate = dateInGenerator || sentDate;
-
-    function existsInProposalTracker_() {
-      var tJobCol      = getCol_(ptMap, ["Job_Title"]);
-      var tClientCol   = getCol_(ptMap, ["Client_Name", "Client Name"]);
-      var tTemplateCol = getCol_(ptMap, ["Template_Used", "Recommended_Template"]);
-      var tHookCol     = getCol_(ptMap, ["Hook_Version"]);
-      var tCtaCol      = getCol_(ptMap, ["CTA_Version"]);
-
-      if (!tJobCol || !tClientCol || !tTemplateCol || !tHookCol || !tCtaCol) return false;
-
-      var lastRealRow = tracker.getLastRow();
-      if (lastRealRow < 2) return false;
-
-      var data = tracker.getRange(2, 1, lastRealRow - 1, tracker.getLastColumn()).getValues();
-      for (var i = 0; i < data.length; i++) {
-        if (
-          data[i][tJobCol      - 1] === jobTitle     &&
-          data[i][tClientCol   - 1] === clientName   &&
-          data[i][tTemplateCol - 1] === templateUsed &&
-          data[i][tHookCol     - 1] === hookVersion  &&
-          data[i][tCtaCol      - 1] === ctaVersion
-        ) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    if (!existsInProposalTracker_()) {
-      var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
-      var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
-
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Keyword_Search"],                  keywordSearch);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Tool_Requested", "Tool_Detected"], toolRequested);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Days_Since_Posted"],               daysSincePosted);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Count"],                  proposalCount);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Total_Score"],                     totalScore);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Notes"],                           notes);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Age_Days"],                        ageDays);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Current_Age_Days"],                currentAgeDays);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Connects_Used"],                   connectsUsed);
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
-      var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
-      setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
-
-      // Connects_Helper's MTD/Total metrics only ever move here, at the
-      // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
-      // block is already guarded to run once per row, so no double count.
-      incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
-      incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
-      incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
-    }
-
-    proposalSentDateCell.setValue(sentDate);
-
-    showWalkthroughOnce_(
-      "FF_WALKTHROUGH_PROPOSAL_SENT_SEEN",
-      "First proposal sent!",
-      "This job now shows up in Proposal_Tracker so you can track what happens next.\n\n" +
-      "When the client views your proposal, mark Viewed. When they reply, mark Interview -- " +
-      "that automatically opens a sidebar to import the chat. When you're hired, mark Hired -- " +
-      "that automatically opens a sidebar to log the contract."
-    );
   }
+}
+
+// Fires the Upwork top-4-bids AI recommendation -- self-contained (reads
+// Bid_4th itself and no-ops if blank) so it can be called either from
+// handleEdit's per-column check above or directly from the Proposal_Generator
+// sidebar after it writes all four bid fields at once.
+function computeBidRecommendation_(ss, sheet, row, map) {
+  var bid4Col = getCol_(map, ["Bid_4th"]);
+  if (!bid4Col) return;
+  var bid4Val = sheet.getRange(row, bid4Col).getValue();
+  if (bid4Val === "" || bid4Val === null) return;
+
+  var bid1Col      = getCol_(map, ["Bid_1st"]);
+  var bid2Col      = getCol_(map, ["Bid_2nd"]);
+  var bid3Col      = getCol_(map, ["Bid_3rd"]);
+  var baseConCol   = getCol_(map, ["Connects_Required"]);
+  var propCountCol = getCol_(map, ["Proposal_Count"]);
+  var titleCol2    = getCol_(map, ["Job_Title"]);
+  var recCol       = getCol_(map, ["Bid_Recommendation"]);
+
+  var bid1Val      = bid1Col      ? sheet.getRange(row, bid1Col).getValue()      : "";
+  var bid2Val      = bid2Col      ? sheet.getRange(row, bid2Col).getValue()      : "";
+  var bid3Val      = bid3Col      ? sheet.getRange(row, bid3Col).getValue()      : "";
+  var baseConVal   = baseConCol   ? sheet.getRange(row, baseConCol).getValue()   : "";
+  var propCountVal = propCountCol ? sheet.getRange(row, propCountCol).getValue() : "";
+  var titleVal     = titleCol2    ? sheet.getRange(row, titleCol2).getValue()    : "";
+
+  var totalScoreVal  = "";
+  var scoringSheet2  = ss.getSheetByName("Job_Scoring");
+  if (scoringSheet2 && titleVal) {
+    var jsMap2      = getHeaderMap_(scoringSheet2);
+    var jsTitleCol2 = getCol_(jsMap2, ["Job_Title"]);
+    var jsScoreCol2 = getCol_(jsMap2, ["Total_Score"]);
+    if (jsTitleCol2 && jsScoreCol2 && scoringSheet2.getLastRow() > 1) {
+      var jsRows = scoringSheet2
+        .getRange(2, 1, scoringSheet2.getLastRow() - 1, scoringSheet2.getLastColumn())
+        .getValues();
+      for (var s = 0; s < jsRows.length; s++) {
+        if (String(jsRows[s][jsTitleCol2 - 1]).trim() === String(titleVal).trim()) {
+          totalScoreVal = jsRows[s][jsScoreCol2 - 1];
+          break;
+        }
+      }
+    }
+  }
+
+  if (!recCol) return;
+  sheet.getRange(row, recCol).setValue("Analyzing...");
+  var recommendation;
+  try {
+    var bidApiKey          = getApiKey_();
+    var bidSettings        = getSettings_();
+    var bidJourneyContext  = FFLib.buildJourneyStage(bidSettings);
+    var bidNoBoostMaxProp  = parseInt(bidSettings['Apply_Max_Proposals']) || 35;
+    var bidNoBoostMinScore = parseFloat(bidSettings['Apply_Min_Score'])   || 0.60;
+    recommendation = FFLib.getBidRecommendation(
+      titleVal, baseConVal, propCountVal,
+      totalScoreVal, bid1Val, bid2Val, bid3Val, bid4Val,
+      bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore
+    );
+  } catch (err) {
+    recommendation = err.message;
+  }
+  sheet.getRange(row, recCol).setValue(recommendation);
+}
+
+// Recomputes Total_Connects_Spent from Boost_Connects + Connects_Required,
+// then regenerates the AI proposal with the boosted context. Self-contained
+// (reads Boost_Connects itself) so it can be called from handleEdit or
+// directly from the Proposal_Generator sidebar.
+function applyBoostConnects_(ss, sheet, row, map) {
+  var boostColPG = getCol_(map, ["Boost_Connects"]);
+  if (!boostColPG) return;
+  var boostVal = sheet.getRange(row, boostColPG).getValue();
+
+  // Total_Connects_Spent = base connects + boost, recalculated every time
+  // Boost_Connects changes, independent of whether the proposal regen
+  // conditions below are met.
+  var totalSpentColPG = getCol_(map, ["Total_Connects_Spent"]);
+  var connReqColPG    = getCol_(map, ["Connects_Required"]);
+  if (totalSpentColPG && connReqColPG) {
+    var connReqValPG = sheet.getRange(row, connReqColPG).getValue();
+    sheet.getRange(row, totalSpentColPG).setValue((Number(connReqValPG) || 0) + (Number(boostVal) || 0));
+  }
+
+  if (boostVal === "" || boostVal === null) return;
+
+  var titleColPG   = getCol_(map, ["Job_Title"]);
+  var descColPG    = getCol_(map, ["Description"]);
+  var toolColPG    = getCol_(map, ["Tool_Detected"]);
+  var jobTypeColPG = getCol_(map, ["Job_Type"]);
+  var tmplColPG    = getCol_(map, ["Recommended_Template"]);
+  var hookColPG    = getCol_(map, ["Hook_Version"]);
+  var ctaColPG     = getCol_(map, ["CTA_Version"]);
+  var aiPropColPG  = getCol_(map, ["AI_Generated_Proposal"]);
+
+  var pgTitle    = titleColPG   ? sheet.getRange(row, titleColPG).getValue()   : "";
+  var pgDesc     = descColPG    ? sheet.getRange(row, descColPG).getValue()    : "";
+  var pgTool     = toolColPG    ? sheet.getRange(row, toolColPG).getValue()    : "";
+  var pgJobType  = jobTypeColPG ? sheet.getRange(row, jobTypeColPG).getValue() : "";
+  var pgTemplate = tmplColPG    ? sheet.getRange(row, tmplColPG).getValue()    : "";
+  var pgHook     = hookColPG    ? sheet.getRange(row, hookColPG).getValue()    : "";
+  var pgCta      = ctaColPG     ? sheet.getRange(row, ctaColPG).getValue()     : "";
+
+  if (!pgDesc || !aiPropColPG) return;
+
+  var tmplId  = String(pgTemplate).trim().substring(0, 2) || "T1";
+  var hookVer = pgHook || "A";
+  var ctaVer  = pgCta  || "A";
+
+  sheet.getRange(row, aiPropColPG).setValue("Drafting proposal...");
+  var aiProposal;
+  try {
+    var boostApiKey         = getApiKey_();
+    var boostSettings       = getSettings_();
+    var boostJourneyContext = FFLib.buildJourneyStage(boostSettings);
+    var boostTemplate       = lookupProposalTemplate_(tmplId, hookVer, ctaVer);
+    var boostFreelancerName = boostSettings['Freelancer_Name'] || 'the freelancer';
+    var boostProposalTone   = boostSettings['Proposal_Tone']   || 'Direct';
+    var boostPortfolioAll   = boostSettings['Portfolio_All']   || '';
+    aiProposal = FFLib.generateAIProposal(
+      pgTitle, pgDesc, pgTool, pgJobType, boostTemplate,
+      boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName
+    );
+  } catch (err) {
+    aiProposal = err.message;
+  }
+  sheet.getRange(row, aiPropColPG).setValue(aiProposal);
+}
+
+// Skip stamps Proposal_Skip_Date. Sent syncs the row into Proposal_Tracker
+// (creating it once, guarded on Proposal_Sent_Date already being set) and
+// feeds Connects_Helper's MTD metrics. Self-contained (reads Proposal_Status
+// itself) so it can be called from handleEdit or directly from the
+// Proposal_Generator sidebar.
+function handleProposalStatusChange_(ss, sheet, row, map) {
+  var proposalStatusCol   = getCol_(map, ["Proposal_Status"]);
+  var proposalSentDateCol = getCol_(map, ["Proposal_Sent_Date"]);
+  var proposalSkipDateCol = getCol_(map, ["Proposal_Skip_Date"]);
+  if (!proposalStatusCol) return;
+
+  var proposalStatus = sheet.getRange(row, proposalStatusCol).getValue();
+
+  if (proposalStatus === "Skip" && proposalSkipDateCol) {
+    var skipDateCell = sheet.getRange(row, proposalSkipDateCol);
+    if (skipDateCell.getValue() === "") {
+      skipDateCell.setValue(new Date());
+    }
+    return;
+  }
+
+  if (proposalStatus !== "Sent") return;
+  if (!proposalSentDateCol) return;
+
+  var proposalSentDateCell = sheet.getRange(row, proposalSentDateCol);
+  if (proposalSentDateCell.getValue() !== "") return;
+
+  var tracker = ss.getSheetByName("Proposal_Tracker");
+  var scoring = ss.getSheetByName("Job_Scoring");
+
+  if (!tracker || !scoring) return;
+
+  var pgMap = map;
+  var ptMap = getHeaderMap_(tracker);
+  var jsMap = getHeaderMap_(scoring);
+
+  var discoveryId        = getCellValue_(sheet, row, pgMap, ["Discovery_ID"]);
+  var dateInGenerator    = getCellValue_(sheet, row, pgMap, ["Date"]);
+  var jobTitle           = getCellValue_(sheet, row, pgMap, ["Job_Title"]);
+  var clientName         = getCellValue_(sheet, row, pgMap, ["Client_Name", "Client Name"]);
+  var toolRequested      = getCellValue_(sheet, row, pgMap, ["Tool_Detected", "Tool_Requested"]);
+  var templateUsed       = getCellValue_(sheet, row, pgMap, ["Recommended_Template", "Template_Used"]);
+  var hookVersion        = getCellValue_(sheet, row, pgMap, ["Hook_Version"]);
+  var ctaVersion         = getCellValue_(sheet, row, pgMap, ["CTA_Version"]);
+  var notes              = getCellValue_(sheet, row, pgMap, ["Notes"]);
+  var jobLink            = getCellValue_(sheet, row, pgMap, ["Job_Link"]);
+  var boostConnects      = getCellValue_(sheet, row, pgMap, ["Boost_Connects"]);
+  var totalConnectsSpent = getCellValue_(sheet, row, pgMap, ["Total_Connects_Spent"]);
+
+  var scoringLastRow = scoring.getLastRow();
+  var scoringLastCol = scoring.getLastColumn();
+  var scoringData    = [];
+  if (scoringLastRow > 1 && scoringLastCol > 0) {
+    scoringData = scoring.getRange(2, 1, scoringLastRow - 1, scoringLastCol).getValues();
+  }
+
+  var keywordSearch    = "";
+  var daysSincePosted  = "";
+  var hoursSincePosted = "";
+  var proposalCount    = "";
+  var totalScore       = "";
+  var ageDays          = "";
+  var currentAgeDays   = "";
+  var connectsUsed     = totalConnectsSpent !== "" ? totalConnectsSpent
+                         : (boostConnects !== "" ? (Number(boostConnects) + 0) : "");
+
+  var jsJobTitleCol      = getCol_(jsMap, ["Job_Title"]);
+  var jsClientCol        = getCol_(jsMap, ["Client_Name", "Client Name"]);
+  var jsKeywordCol       = getCol_(jsMap, ["Keyword_Search"]);
+  var jsDaysCol          = getCol_(jsMap, ["Days_Since_Posted"]);
+  var jsHoursCol         = getCol_(jsMap, ["Hours_Since_Posted"]);
+  var jsProposalCountCol = getCol_(jsMap, ["Proposal_Count"]);
+  var jsConnectsCol      = getCol_(jsMap, ["Connects_Required"]);
+  var jsJobLinkCol       = getCol_(jsMap, ["Job_Link"]);
+  var jsTotalScoreCol    = getCol_(jsMap, ["Total_Score"]);
+  var jsDateScoredCol    = getCol_(jsMap, ["Date_Scored"]);
+
+  for (var i = 0; i < scoringData.length; i++) {
+    var rowTitle  = jsJobTitleCol ? scoringData[i][jsJobTitleCol - 1] : "";
+    var rowClient = jsClientCol   ? scoringData[i][jsClientCol   - 1] : "";
+
+    var titleMatch  = rowTitle === jobTitle;
+    var clientMatch = !clientName || !rowClient || rowClient === clientName;
+
+    if (titleMatch && clientMatch) {
+      keywordSearch    = jsKeywordCol       ? scoringData[i][jsKeywordCol       - 1] : "";
+      daysSincePosted  = jsDaysCol          ? scoringData[i][jsDaysCol          - 1] : "";
+      hoursSincePosted = jsHoursCol         ? scoringData[i][jsHoursCol         - 1] : "";
+      proposalCount    = jsProposalCountCol ? scoringData[i][jsProposalCountCol - 1] : "";
+      if (connectsUsed === "") {
+        connectsUsed = jsConnectsCol ? scoringData[i][jsConnectsCol - 1] : "";
+      }
+      if (!jobLink) {
+        jobLink = jsJobLinkCol ? scoringData[i][jsJobLinkCol - 1] : "";
+      }
+      totalScore = jsTotalScoreCol ? scoringData[i][jsTotalScoreCol - 1] : "";
+      if (jsDateScoredCol && scoringData[i][jsDateScoredCol - 1]) {
+        var scoredDate = new Date(scoringData[i][jsDateScoredCol - 1]);
+        var today      = new Date();
+        ageDays = Math.floor((today - scoredDate) / (1000 * 60 * 60 * 24));
+      }
+      if (jsDateScoredCol && scoringData[i][jsDateScoredCol - 1]) {
+        var anchorDate  = new Date(scoringData[i][jsDateScoredCol - 1]);
+        var now         = new Date();
+        var elapsedDays = (now - anchorDate) / (1000 * 60 * 60 * 24);
+        var hVal        = parseFloat(hoursSincePosted) || 0;
+        var dVal        = parseFloat(daysSincePosted)  || 0;
+        if (hVal > 0) {
+          currentAgeDays = Math.round(((hVal / 24) + elapsedDays) * 10) / 10;
+        } else if (dVal > 0) {
+          currentAgeDays = Math.round((dVal + elapsedDays) * 10) / 10;
+        }
+      }
+      break;
+    }
+  }
+
+  var sentDate    = new Date();
+  var appliedDate = dateInGenerator || sentDate;
+
+  function existsInProposalTracker_() {
+    var tJobCol      = getCol_(ptMap, ["Job_Title"]);
+    var tClientCol   = getCol_(ptMap, ["Client_Name", "Client Name"]);
+    var tTemplateCol = getCol_(ptMap, ["Template_Used", "Recommended_Template"]);
+    var tHookCol     = getCol_(ptMap, ["Hook_Version"]);
+    var tCtaCol      = getCol_(ptMap, ["CTA_Version"]);
+
+    if (!tJobCol || !tClientCol || !tTemplateCol || !tHookCol || !tCtaCol) return false;
+
+    var lastRealRow = tracker.getLastRow();
+    if (lastRealRow < 2) return false;
+
+    var data = tracker.getRange(2, 1, lastRealRow - 1, tracker.getLastColumn()).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (
+        data[i][tJobCol      - 1] === jobTitle     &&
+        data[i][tClientCol   - 1] === clientName   &&
+        data[i][tTemplateCol - 1] === templateUsed &&
+        data[i][tHookCol     - 1] === hookVersion  &&
+        data[i][tCtaCol      - 1] === ctaVersion
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (!existsInProposalTracker_()) {
+    var ptJobTitleCol  = getCol_(ptMap, ["Job_Title"]);
+    var nextTrackerRow = findFirstEmptyRowByColumn_(tracker, ptJobTitleCol);
+
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Discovery_ID"],                    discoveryId);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Date_Applied"],                    appliedDate);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Title"],                       jobTitle);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Client_Name", "Client Name"],      clientName);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Keyword_Search"],                  keywordSearch);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Tool_Requested", "Tool_Detected"], toolRequested);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Days_Since_Posted"],               daysSincePosted);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Count"],                  proposalCount);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Total_Score"],                     totalScore);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Template_Used"],                   templateUsed);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Hook_Version"],                    hookVersion);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["CTA_Version"],                     ctaVersion);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Viewed"],                          "N");
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Interview"],                       "N");
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Hired"],                           "N");
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Revenue"],                         "");
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Notes"],                           notes);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Age_Days"],                        ageDays);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Current_Age_Days"],                currentAgeDays);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Connects_Used"],                   connectsUsed);
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Boost_Connects"],                  boostConnects !== "" ? boostConnects : 0);
+    var totalForCost = connectsUsed !== "" ? Number(connectsUsed) : 0;
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Proposal_Cost"],                   totalForCost > 0 ? "$" + (totalForCost * 0.15).toFixed(2) : "");
+    setCellValue_(tracker, nextTrackerRow, ptMap, ["Job_Link"],                        jobLink);
+
+    // Connects_Helper's MTD/Total metrics only ever move here, at the
+    // moment a fresh Proposal_Tracker row is created -- this whole "Sent"
+    // path is already guarded to run once per row, so no double count.
+    incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
+    incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
+    incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
+  }
+
+  proposalSentDateCell.setValue(sentDate);
+
+  showWalkthroughOnce_(
+    "FF_WALKTHROUGH_PROPOSAL_SENT_SEEN",
+    "First proposal sent!",
+    "This job now shows up in Proposal_Tracker so you can track what happens next.\n\n" +
+    "When the client views your proposal, mark Viewed. When they reply, mark Interview -- " +
+    "that automatically opens a sidebar to import the chat. When you're hired, mark Hired -- " +
+    "that automatically opens a sidebar to log the contract."
+  );
 }

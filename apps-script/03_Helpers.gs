@@ -159,3 +159,217 @@ function showWalkthroughOnce_(key, title, message) {
   if (showWalkthroughSeen_(key)) return;
   SpreadsheetApp.getUi().alert(title, message, SpreadsheetApp.getUi().ButtonSet.OK);
 }
+
+// Splits FFLib.getQuickNotes' "[Effort], [Scope] & [Portfolio Match]" output
+// (e.g. "Normal, Mostly Clear & Strong") into its three labeled parts for
+// display -- same split points Lib_JobScoringFormulas.gs's Effort_Level/
+// Scope_Rating/Portfolio_Match formulas use. Returns null for anything not
+// in that shape (an error message, "Analyzing...", empty), so callers can
+// just skip showing anything rather than display garbled text.
+function parseAiFitNotes_(notes) {
+  var text     = String(notes || '');
+  var commaIdx = text.indexOf(',');
+  var ampIdx   = text.indexOf('&');
+  if (commaIdx === -1 || ampIdx === -1 || ampIdx < commaIdx) return null;
+
+  return {
+    effort:    text.substring(0, commaIdx).trim(),
+    scope:     text.substring(commaIdx + 1, ampIdx).trim(),
+    portfolio: text.substring(ampIdx + 1).trim().replace(/[.!]+$/, '')
+  };
+}
+
+// ------------------------------------------------------------------------
+// GUIDED FIRST-SESSION TOUR
+// A fixed 6-step walkthrough chained across the first real session (see
+// trigger points in 18_Keyword_Strategy.gs, 12_Session_Management.gs,
+// 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs, and onSelectionChange
+// below). Each step is a standalone modal (OK continues, Cancel skips)
+// gated on its own one-time-seen flag, same convention as
+// showWalkthroughOnce_ above -- but Cancel on ANY step sets FF_TOUR_SKIPPED,
+// which silences every remaining step for good, not just that one.
+// ------------------------------------------------------------------------
+function showTourStep_(key, title, message) {
+  var prop = PropertiesService.getScriptProperties();
+  if (prop.getProperty('FF_TOUR_SKIPPED') === 'true') return;
+  if (prop.getProperty(key) === 'true') return;
+  prop.setProperty(key, 'true');
+
+  var ui       = SpreadsheetApp.getUi();
+  var response = ui.alert(title, message + '\n\n(Cancel skips the rest of this guided tour.)', ui.ButtonSet.OK_CANCEL);
+  if (response === ui.Button.CANCEL) {
+    prop.setProperty('FF_TOUR_SKIPPED', 'true');
+  }
+}
+
+// Counts Job_Discovery rows tagged with the given Session_ID -- same method
+// END_SESSION uses, so it stays accurate whether jobs were logged via the
+// sidebar or pasted directly into cells. Shared by the yield/halfway
+// one-shot checks below and by the sidebar's live countdown.
+function getSessionJobCount_(ss, sessionId) {
+  var discoverySheet = ss.getSheetByName('Job_Discovery');
+  if (!discoverySheet || discoverySheet.getLastRow() < 2) return 0;
+
+  var map          = getHeaderMap_(discoverySheet);
+  var sessionIdCol = getCol_(map, ['Session_ID']);
+  if (!sessionIdCol) return 0;
+
+  var values = discoverySheet.getRange(2, sessionIdCol, discoverySheet.getLastRow() - 1, 1).getValues();
+  var count  = 0;
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim().toUpperCase() === sessionId) count++;
+  }
+  return count;
+}
+
+// True exactly once per session -- the call where the active session's
+// logged-job count first reaches Session_Yield_Target.
+function sessionYieldJustReached_(ss) {
+  var prop = PropertiesService.getScriptProperties();
+  if (prop.getProperty('SESSION_ACTIVE') !== 'true') return false;
+  if (prop.getProperty('SESSION_YIELD_NOTIFIED') === 'true') return false;
+
+  var sessionId   = prop.getProperty('SESSION_ID');
+  var count       = getSessionJobCount_(ss, sessionId);
+  var yieldTarget = parseInt(getSettings_()['Session_Yield_Target']) || 8;
+  if (count < yieldTarget) return false;
+
+  prop.setProperty('SESSION_YIELD_NOTIFIED', 'true');
+  return true;
+}
+
+// True exactly once per session -- the call where the active session's
+// logged-job count first reaches the halfway point to Session_Yield_Target
+// (rounded up, so a target of 9 flags at 5).
+function sessionHalfwayJustReached_(ss) {
+  var prop = PropertiesService.getScriptProperties();
+  if (prop.getProperty('SESSION_ACTIVE') !== 'true') return false;
+  if (prop.getProperty('SESSION_HALFWAY_NOTIFIED') === 'true') return false;
+
+  var sessionId   = prop.getProperty('SESSION_ID');
+  var count       = getSessionJobCount_(ss, sessionId);
+  var yieldTarget = parseInt(getSettings_()['Session_Yield_Target']) || 8;
+  var halfway     = Math.ceil(yieldTarget / 2);
+  if (count < halfway) return false;
+
+  prop.setProperty('SESSION_HALFWAY_NOTIFIED', 'true');
+  return true;
+}
+
+// Fires once per session, the moment the halfway point is reached --
+// suggests switching keywords to keep results fresh for the back half of
+// the session.
+function handleSessionHalfwayReached_(ss) {
+  if (!sessionHalfwayJustReached_(ss)) return;
+
+  SpreadsheetApp.getUi().alert(
+    'Halfway There',
+    'You\'re halfway to this session\'s job target. Consider switching to a different keyword to keep results fresh for the rest of the session.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+// Dispatch point for the moment a session's yield target is reached --
+// shared by both job-logging entry paths (sidebar and direct cell paste).
+// Fires the first-session-only guided tour steps, then the every-session
+// yield summary, both gated on the single sessionYieldJustReached_ check
+// (it's stateful/one-shot per session, so it must only be called once here).
+// Returns true the one time it actually fires, so callers (job_saveEntry)
+// know the session target was just hit -- e.g. to close the Log New Job
+// sidebar automatically.
+function handleSessionYieldReached_(ss) {
+  if (!sessionYieldJustReached_(ss)) return false;
+
+  showTourStep_(
+    'FF_TOUR_STEP4_YIELD_SEEN',
+    'Session Target Reached',
+    'You\'ve hit this session\'s job target. Head to Job_Scoring -- nothing needs to be entered there anymore, just check which jobs scored APPLY.'
+  );
+  showTourStep_(
+    'FF_TOUR_STEP5_PROPOSAL_GEN_SEEN',
+    'Next: Proposal_Generator',
+    'Any job scored APPLY automatically moves to Proposal_Generator. Head there next to review the AI-drafted proposals.'
+  );
+
+  showSessionYieldSummary_(ss);
+  return true;
+}
+
+// Every-session popup (not just the first) shown the moment the yield
+// target is reached -- reports how many of THIS session's jobs moved to
+// Job_Scoring (Discovery_Action = Move to Scoring) and how many of those
+// were scored APPLY into Proposal_Generator. Job_Scoring carries no
+// Session_ID of its own, so the APPLY count is cross-referenced by
+// Discovery_ID against this session's Job_Discovery rows.
+function showSessionYieldSummary_(ss) {
+  var prop      = PropertiesService.getScriptProperties();
+  var sessionId = prop.getProperty('SESSION_ID');
+
+  var discoverySheet = ss.getSheetByName('Job_Discovery');
+  if (!discoverySheet || discoverySheet.getLastRow() < 2) return;
+
+  var discMap      = getHeaderMap_(discoverySheet);
+  var discIdCol    = getCol_(discMap, ['Discovery_ID']);
+  var sessionIdCol = getCol_(discMap, ['Session_ID']);
+  var actionCol    = getCol_(discMap, ['Discovery_Action']);
+  if (!discIdCol || !sessionIdCol || !actionCol) return;
+
+  var discData = discoverySheet
+    .getRange(2, 1, discoverySheet.getLastRow() - 1, discoverySheet.getLastColumn())
+    .getValues();
+
+  var sessionDiscoveryIds = {};
+  var movedToScoring      = 0;
+
+  for (var i = 0; i < discData.length; i++) {
+    var rowSession = String(discData[i][sessionIdCol - 1]).trim().toUpperCase();
+    if (rowSession !== sessionId) continue;
+
+    sessionDiscoveryIds[String(discData[i][discIdCol - 1]).trim()] = true;
+    if (String(discData[i][actionCol - 1]).trim() === 'Move to Scoring') movedToScoring++;
+  }
+
+  var applyCount   = 0;
+  var scoringSheet = ss.getSheetByName('Job_Scoring');
+  if (scoringSheet && scoringSheet.getLastRow() > 1) {
+    var jsMap    = getHeaderMap_(scoringSheet);
+    var jsIdCol  = getCol_(jsMap, ['Discovery_ID']);
+    var jsDecCol = getCol_(jsMap, ['Final_Decision']);
+
+    if (jsIdCol && jsDecCol) {
+      var jsData = scoringSheet
+        .getRange(2, 1, scoringSheet.getLastRow() - 1, scoringSheet.getLastColumn())
+        .getValues();
+
+      for (var j = 0; j < jsData.length; j++) {
+        var jsDiscoveryId = String(jsData[j][jsIdCol - 1]).trim();
+        if (sessionDiscoveryIds[jsDiscoveryId] && String(jsData[j][jsDecCol - 1]).trim() === 'APPLY') {
+          applyCount++;
+        }
+      }
+    }
+  }
+
+  SpreadsheetApp.getUi().alert(
+    'Session Yield Summary',
+    movedToScoring + ' job(s) from this session moved to Job_Scoring.\n' +
+    applyCount + ' job(s) scored APPLY and moved to Proposal_Generator.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+// Simple trigger, no registration needed (auto-fires on any selection
+// change, including switching the active sheet). Only ever used for the
+// guided tour's last step -- fires once, the first time the active sheet
+// becomes Proposal_Generator. Do NOT define onSelectionChange anywhere else
+// in this project; Apps Script only recognizes one.
+function onSelectionChange(e) {
+  if (!e || !e.range) return;
+  if (e.range.getSheet().getName() !== 'Proposal_Generator') return;
+
+  showTourStep_(
+    'FF_TOUR_STEP6_RUN_CLASSIFICATION_SEEN',
+    'Classify These Jobs',
+    'Before writing proposals, run System Tools > Run Job Classification. It fills in Job_Type and picks a matching proposal template for each job.'
+  );
+}

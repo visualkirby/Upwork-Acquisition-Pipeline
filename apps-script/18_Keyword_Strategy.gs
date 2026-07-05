@@ -106,4 +106,19 @@ function GENERATE_KEYWORD_STRATEGY() {
     "All three tracked in Keyword_Strategy against a target of " + DEFAULT_TARGET_COUNT + " jobs each.";
 
   ui.alert(summary);
+
+  showTourStep_(
+    'FF_TOUR_STEP1_SESSIONS_SEEN',
+    'Keyword Strategy Ready',
+    'Keyword_Strategy and Keyword_Search_List are ready to use.\n\n' +
+    'Use System Tools > Start Session before you start searching Upwork, and End Session when you\'re done -- that logs the session\'s results.'
+  );
+  showTourStep_(
+    'FF_TOUR_STEP2_MINING_SEEN',
+    'Keyword Mining Strategy',
+    'Keyword_Strategy tracks which keywords are working:\n\n' +
+    '- Generate Keyword Strategy creates new keyword ideas (what you just ran)\n' +
+    '- Mine Keywords scans your logged jobs for new keyword candidates\n' +
+    '- Any keyword marked "Avoid" in Recommended_Action is underperforming -- drop it from your searches.'
+  );
 }

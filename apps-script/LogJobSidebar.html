@@ -49,6 +49,7 @@ textarea { resize: vertical; min-height: 90px; }
     <div class="tagline">Log New Job</div>
   </div>
 
+  <div id="countdown-box"></div>
   <div id="walkthrough-box"></div>
 
   <label>Job Title</label>
@@ -60,7 +61,7 @@ textarea { resize: vertical; min-height: 90px; }
   <div class="row2">
     <div>
       <label>Client Name</label>
-      <input type="text" id="client-name">
+      <input type="text" id="client-name" placeholder="N/A">
     </div>
     <div>
       <label>Job Link</label>
@@ -165,6 +166,26 @@ function status(id, msg, type) {
 function val(id) { return document.getElementById(id).value.trim(); }
 function num(id) { return Number(document.getElementById(id).value) || 0; }
 
+function updateCountdown(ctx) {
+  var box = document.getElementById('countdown-box');
+  if (!ctx || !ctx.sessionActive) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="info-box">' + ctx.loggedCount + ' of ' + ctx.yieldTarget +
+    ' logged this session &mdash; ' + ctx.remaining + ' remaining</div>';
+}
+
+function clearForm() {
+  ['job-title', 'description', 'client-name', 'job-link', 'keyword-search',
+   'budget', 'hourly-rate', 'client-hires', 'connects-required',
+   'days-since-posted', 'hours-since-posted', 'minutes-since-posted'
+  ].forEach(function (id) { document.getElementById(id).value = ''; });
+
+  document.getElementById('experience-level').value  = 'Intermediate';
+  document.getElementById('proposal-count').value    = 'Fewer than 5';
+  document.getElementById('budget-type').value       = 'Fixed';
+  document.getElementById('payment-verified').value  = 'Yes';
+  document.getElementById('job-title').focus();
+}
+
 function init() {
   google.script.run
     .withSuccessHandler(function (r) {
@@ -174,6 +195,7 @@ function init() {
           'Once saved, FreelanceFlow scores it automatically in Job_Scoring -- ' +
           'you don\'t need to touch anything else on this sheet by hand.</div>';
       }
+      updateCountdown(r);
     })
     .withFailureHandler(function () {})
     .jobDiscovery_getContext();
@@ -209,7 +231,15 @@ function saveJob() {
     .withSuccessHandler(function (r) {
       document.getElementById('btn-save').disabled = false;
       if (r.ok) {
-        status('status', 'Job logged. Clear this form to log another.', 'ok');
+        updateCountdown(r);
+        clearForm();
+        if (r.sessionComplete) {
+          status('status', 'Session target reached. Closing this sidebar...', 'ok');
+          document.getElementById('btn-save').disabled = true;
+          setTimeout(function () { google.script.host.close(); }, 1500);
+        } else {
+          status('status', 'Job logged. Form cleared for the next one.', 'ok');
+        }
       } else {
         status('status', r.message, 'error');
       }
