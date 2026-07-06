@@ -17,7 +17,7 @@ function RESET_TO_AFTER_SETUP() {
   var response = ui.alert(
     'Reset to Right After Setup',
     'This clears every job, session, proposal, contract, and keyword-search-history ' +
-    'you\'ve logged, but keeps your Settings, Proposal_Templates, and generated ' +
+    'you\'ve logged, but keeps your Settings, Proposal_Templates, Projects, and generated ' +
     'Keyword_Strategy exactly as the Setup Wizard left them.\n\n' +
     'You\'ll be asked to re-enter your Connect Balance. This cannot be undone. Continue?',
     ui.ButtonSet.OK_CANCEL
@@ -87,7 +87,7 @@ function RESET_TO_BEFORE_SETUP() {
   var warning = ui.alert(
     'Factory Reset -- Before Setup Wizard',
     'This deletes EVERY sheet FreelanceFlow created (Settings, Connects_Helper, ' +
-    'Proposal_Templates, Job_Discovery, Job_Scoring, Proposal_Generator, Proposal_Tracker, ' +
+    'Proposal_Templates, Projects, Job_Discovery, Job_Scoring, Proposal_Generator, Proposal_Tracker, ' +
     'Client_Chat_Log, Contract_Tracker, Milestone_Tracker, Hourly_Log, Session_Log, ' +
     'Keyword_Search_List, Keyword_Strategy, Monthly_Performance) and clears your API key. ' +
     'The Setup Wizard reopens immediately after.\n\n' +
@@ -109,7 +109,7 @@ function RESET_TO_BEFORE_SETUP() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheetNames = [
-    'Settings', 'Connects_Helper', 'Proposal_Templates',
+    'Settings', 'Connects_Helper', 'Proposal_Templates', 'Projects',
     'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
     'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
     'Session_Log', 'Keyword_Search_List', 'Keyword_Strategy', 'Monthly_Performance'
