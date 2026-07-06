@@ -21,14 +21,35 @@ function getSettings_() {
     if (key) settings[key] = val;
   }
 
-  var portfolioParts = [];
-  for (var p = 1; p <= 6; p++) {
-    var pVal = settings['Portfolio_' + p];
-    if (pVal && pVal !== '') portfolioParts.push(pVal);
-  }
-  settings['Portfolio_All'] = portfolioParts.join('; ');
+  settings['Portfolio_All'] = buildPortfolioAllFromProjects_(ss);
 
   return settings;
+}
+
+// Portfolio_All feeds the AI proposal prompts (see Lib_ProposalGenerator.gs's
+// getPortfolioContext) -- pulling Description in here, not just Project_Name,
+// is what lets the AI reference what a project actually did instead of just
+// its title.
+function buildPortfolioAllFromProjects_(ss) {
+  var sheet = ss.getSheetByName('Projects');
+  if (!sheet || sheet.getLastRow() < 2) return '';
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var nameCol = headers.indexOf('Project_Name');
+  var descCol = headers.indexOf('Description');
+  if (nameCol < 0) return '';
+
+  var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  var parts = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var name = String(data[i][nameCol]).trim();
+    if (!name) continue;
+    var desc = descCol >= 0 ? String(data[i][descCol]).trim() : '';
+    parts.push(desc ? name + ': ' + desc : name);
+  }
+
+  return parts.join('; ');
 }
 
 

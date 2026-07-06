@@ -240,6 +240,8 @@ textarea { resize: vertical; min-height: 70px; }
         <div class="port-num">Project 1</div>
         <label class="sub">Project name:</label>
         <input type="text" class="port-name" placeholder="e.g. Sales Performance Dashboard">
+        <label class="sub">Description:</label>
+        <textarea class="port-desc" style="min-height:50px;" placeholder="e.g. Built a Power BI dashboard tracking quarterly sales by region for a 12-person sales team, replacing a manual Excel process."></textarea>
         <label class="sub">Keywords (comma-separated):</label>
         <input type="text" class="port-kw" placeholder="e.g. sales, revenue, quarterly, kpi">
       </div>
@@ -247,6 +249,8 @@ textarea { resize: vertical; min-height: 70px; }
         <div class="port-num">Project 2</div>
         <label class="sub">Project name:</label>
         <input type="text" class="port-name" placeholder="e.g. Inventory Tracking System">
+        <label class="sub">Description:</label>
+        <textarea class="port-desc" style="min-height:50px;" placeholder="e.g. Built an inventory tracking system flagging low-stock SKUs and reorder points for a warehouse operation."></textarea>
         <label class="sub">Keywords (comma-separated):</label>
         <input type="text" class="port-kw" placeholder="e.g. inventory, stock, warehouse, reorder">
       </div>
@@ -254,6 +258,8 @@ textarea { resize: vertical; min-height: 70px; }
         <div class="port-num">Project 3</div>
         <label class="sub">Project name:</label>
         <input type="text" class="port-name" placeholder="e.g. HR Headcount Report">
+        <label class="sub">Description:</label>
+        <textarea class="port-desc" style="min-height:50px;" placeholder="e.g. Built a headcount and attrition report pulling from an HRIS export, updated monthly for leadership review."></textarea>
         <label class="sub">Keywords (comma-separated):</label>
         <input type="text" class="port-kw" placeholder="e.g. hr, headcount, attrition, hiring">
       </div>
@@ -430,6 +436,8 @@ function addPortRow() {
     '<div class="port-num">Project ' + n + '</div>' +
     '<label class="sub">Project name:</label>' +
     '<input type="text" class="port-name" placeholder="Project name">' +
+    '<label class="sub">Description:</label>' +
+    '<textarea class="port-desc" style="min-height:50px;" placeholder="What the project was and what you did"></textarea>' +
     '<label class="sub">Keywords (comma-separated):</label>' +
     '<input type="text" class="port-kw" placeholder="keyword1, keyword2, keyword3">';
   document.getElementById('port-rows').appendChild(div);
@@ -440,8 +448,9 @@ function getPortfolio() {
   var out = [];
   document.querySelectorAll('.port-row').forEach(function(r) {
     var n = r.querySelector('.port-name').value.trim();
+    var d = r.querySelector('.port-desc').value.trim();
     var k = r.querySelector('.port-kw').value.trim();
-    if (n) out.push({ name: n, keywords: k });
+    if (n) out.push({ name: n, description: d, keywords: k });
   });
   return out;
 }

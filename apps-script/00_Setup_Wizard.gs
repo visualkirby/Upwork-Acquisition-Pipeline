@@ -90,8 +90,10 @@ function wizard_initialize(data) {
   initSettingsSheet_(ss, data, thresholds);
   initConnectsHelper_(ss, Number(data.connectBalance) || 0);
   initProposalTemplates_(ss, data.portfolio, data.generatedTemplates);
+  initProjectsSheet_(ss, data.portfolio);
   ensurePipelineSheets_(ss, data.starterKeywords || []);
   registerEditTrigger_();
+  reorderPipelineTabs_(ss);
 
   // Auto-run the AI keyword strategy off the niche/portfolio just written to
   // Settings, so Keyword_Strategy and Keyword_Search_List are already
@@ -167,12 +169,6 @@ function initSettingsSheet_(ss, data, thresholds) {
     ['Hold_Max_Connects',        thresholds.holdMaxConn],
     ['Session_Yield_Target',     thresholds.yieldTarget]
   ];
-
-  var portfolio = data.portfolio || [];
-  for (var i = 0; i < Math.min(portfolio.length, 6); i++) {
-    rows.push(['Portfolio_' + (i + 1),               portfolio[i].name]);
-    rows.push(['Portfolio_' + (i + 1) + '_Keywords',  portfolio[i].keywords]);
-  }
 
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
 }
@@ -260,6 +256,28 @@ function initProposalTemplates_(ss, portfolio, generatedTemplates) {
   sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
 }
 
+// Projects is the single source of truth for portfolio data -- the wizard
+// writes it once here, but it's a plain sheet meant to be edited afterward
+// (add/remove/rename projects) same as Keyword_Search_List. Everything that
+// used to read Portfolio_N / Portfolio_N_Keywords off Settings now reads
+// this sheet instead (getPortfolioMapFromProjects_, getSettings_'s
+// Portfolio_All), so edits here actually take effect on later formula runs.
+function initProjectsSheet_(ss, portfolio) {
+  var sheet = ss.getSheetByName('Projects');
+  if (!sheet) {
+    sheet = ss.insertSheet('Projects');
+    sheet.getRange(1, 1, 1, 3).setValues([['Project_Name', 'Description', 'Keywords']]).setFontWeight('bold');
+  }
+  if (sheet.getLastRow() > 1) return;
+
+  var rows = (portfolio || []).map(function (p) {
+    return [p.name, p.description || '', p.keywords || ''];
+  });
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, 3).setValues(rows);
+  }
+}
+
 function ensurePipelineSheets_(ss, starterKeywords) {
   var defs = [
     { name: 'Job_Discovery', headers: ['Discovery_ID','Date_Found','Session_ID','Job_Title','Description','Additional_Questions','Client_Name','Keyword_Search','Tool_Detected','Experience_Level','Minutes_Since_Posted','Hours_Since_Posted','Days_Since_Posted','Current_Age_Days','Proposal_Count','Payment_Verified','Client_Hires','Budget_Type','Budget','Hourly_Rate','Job_Link','Connects_Required','AI_Fit_Notes','Discovery_Status','Keyword_Fit_Score','Tool_Score','Experience_Score','Freshness_Score','Competition_Score','Verification_Score','Client_History_Score','Budget_Quick_Score','Discovery_Priority_Score','Discovery_Action'] },
@@ -272,7 +290,7 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     { name: 'Hourly_Log',       headers: ['Discovery_ID','Job_Title','Log_Date','Hours_Logged','Amount','Notes'] },
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
-    { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes'] },
+    { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop'] },
     { name: 'Monthly_Performance', headers: ['Month','Year','Total_Sessions','Jobs_Logged','Proposals_Sent','Connects_Used','Proposal_Cost','Replies','Interviews','Hires','Reply_Rate_Pct','Interview_Rate_Pct','Hire_Rate_Pct','Revenue','Cost','ROI','Cost_per_Reply','Cost_per_Interview','Cost_per_Hire','Monthly_ROI_Dollar','Expected_Value_per_Proposal','Revenue_per_Connect','Net_Value_per_Connect'] }
   ];
 
@@ -304,6 +322,8 @@ function ensurePipelineSheets_(ss, starterKeywords) {
         applyMilestoneTrackerValidation_(sheet, def.headers);
       } else if (def.name === 'Hourly_Log') {
         applyHourlyLogValidation_(sheet, def.headers);
+      } else if (def.name === 'Keyword_Strategy') {
+        applyKeywordStrategyValidation_(sheet, def.headers);
       }
     }
   }
@@ -330,6 +350,38 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     });
     kwSheet.getRange(2, 1, rows.length, 4).setValues(rows);
   }
+}
+
+// Sheet creation order above is driven by cross-sheet formula dependencies
+// (e.g. Job_Scoring's Additional_Questions lookup needs Proposal_Generator's
+// headers already in place), which doesn't match the tab order a customer
+// actually wants to see. This runs once at the end of setup to move every
+// tab into the intended reading order, independent of creation order.
+// Deletes the default "Sheet1" left over from a brand-new spreadsheet, since
+// by this point every real sheet has been created and it's just clutter.
+function reorderPipelineTabs_(ss) {
+  var order = [
+    'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
+    'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
+    'Proposal_Templates', 'Keyword_Search_List', 'Keyword_Strategy',
+    'Connects_Helper', 'Session_Log', 'Projects', 'Settings', 'Monthly_Performance'
+  ];
+
+  for (var i = 0; i < order.length; i++) {
+    var sheet = ss.getSheetByName(order[i]);
+    if (sheet) {
+      ss.setActiveSheet(sheet);
+      ss.moveActiveSheet(i + 1);
+    }
+  }
+
+  var defaultSheet = ss.getSheetByName('Sheet1');
+  if (defaultSheet && ss.getSheets().length > 1) {
+    ss.deleteSheet(defaultSheet);
+  }
+
+  var landingSheet = ss.getSheetByName('Job_Discovery');
+  if (landingSheet) ss.setActiveSheet(landingSheet);
 }
 
 function registerEditTrigger_() {
@@ -594,8 +646,24 @@ function applyHourlyLogValidation_(sheet, headers) {
   }
 }
 
+// Drop is a manual override, separate from the formula-driven
+// Recommended_Action column -- select "Drop" on a keyword, then run
+// System Tools > Drop Keywords (18_Keyword_Strategy.gs) to purge it from
+// Keyword_Search_List. This row itself is never touched by that purge.
+function applyKeywordStrategyValidation_(sheet, headers) {
+  var dropRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Drop'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  var dropCol = headers.indexOf('Drop') + 1;
+  if (dropCol > 0) {
+    sheet.getRange(2, dropCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(dropRule);
+  }
+}
+
 function applyProposalGeneratorFormulas_(sheet, headers) {
-  var portfolioMap = getPortfolioMapFromSettings_();
+  var portfolioMap = getPortfolioMapFromProjects_();
   var primaryTools = (getSettings_()['Primary_Tools'] || '');
   var formulas     = FFLib.buildProposalGeneratorFormulas(headers, portfolioMap, primaryTools);
 
@@ -741,33 +809,30 @@ function colLetterClient_(n) {
   return s;
 }
 
-function getPortfolioMapFromSettings_() {
+function getPortfolioMapFromProjects_() {
   var ss           = SpreadsheetApp.getActiveSpreadsheet();
-  var settings      = ss.getSheetByName('Settings');
+  var sheet        = ss.getSheetByName('Projects');
   var portfolioMap = {};
 
-  if (!settings || settings.getLastRow() < 2) return portfolioMap;
+  if (!sheet || sheet.getLastRow() < 2) return portfolioMap;
 
-  var data = settings.getRange(2, 1, settings.getLastRow() - 1, 2).getValues();
+  var headers  = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var nameCol  = headers.indexOf('Project_Name');
+  var descCol  = headers.indexOf('Description');
+  var kwCol    = headers.indexOf('Keywords');
+  var data     = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
 
   for (var i = 0; i < data.length; i++) {
-    var key = String(data[i][0]).trim();
-    var val = String(data[i][1]).trim();
-    if (!val) continue;
+    var name = nameCol  >= 0 ? String(data[i][nameCol]).trim() : '';
+    if (!name) continue;
 
-    var nameMatch = key.match(/^Portfolio_(\d+)$/);
-    if (nameMatch) {
-      var n = nameMatch[1];
-      portfolioMap[n] = portfolioMap[n] || { name: '', keywords: [] };
-      portfolioMap[n].name = val;
-    }
+    var desc = descCol >= 0 ? String(data[i][descCol]).trim() : '';
+    var kwRaw = kwCol   >= 0 ? String(data[i][kwCol]).trim()  : '';
+    var keywords = kwRaw
+      ? kwRaw.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(function(k) { return k; })
+      : [];
 
-    var kwMatch = key.match(/^Portfolio_(\d+)_Keywords$/);
-    if (kwMatch) {
-      var n2 = kwMatch[1];
-      portfolioMap[n2] = portfolioMap[n2] || { name: '', keywords: [] };
-      portfolioMap[n2].keywords = val.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(function(k) { return k; });
-    }
+    portfolioMap[i + 1] = { name: name, description: desc, keywords: keywords };
   }
 
   return portfolioMap;

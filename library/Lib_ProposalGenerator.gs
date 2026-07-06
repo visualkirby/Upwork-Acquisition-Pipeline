@@ -135,7 +135,7 @@ function getPortfolioContext(settings) {
       return '(' + (i + 1) + ') ' + p;
     }).join(' ');
   } else {
-    context += '(No portfolio projects configured. Add them in the Settings sheet under Portfolio_1 through Portfolio_5.)';
+    context += '(No portfolio projects configured. Add them to the Projects sheet.)';
   }
 
   context += ' Tools used: ' + tools + '.';

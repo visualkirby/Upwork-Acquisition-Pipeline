@@ -3,7 +3,7 @@
  * 18. KEYWORD STRATEGY BUILDER
  * Generates an AI Primary/Secondary/Negative keyword strategy
  * from the freelancer's niche + portfolio (already on file in
- * Settings) and writes it into Keyword_Search_List (so it's
+ * the Projects sheet) and writes it into Keyword_Search_List (so it's
  * ready to search Upwork with) and Keyword_Strategy (so it's
  * tracked against a target job count per keyword).
  *
@@ -38,7 +38,7 @@ function GENERATE_KEYWORD_STRATEGY() {
   var settings = getSettings_();
   var niche    = settings["Freelancer_Background"] || "";
 
-  var portfolioMap   = getPortfolioMapFromSettings_();
+  var portfolioMap   = getPortfolioMapFromProjects_();
   var portfolioParts = Object.keys(portfolioMap).sort().map(function (n) {
     var proj = portfolioMap[n];
     if (!proj.name) return "";
@@ -119,6 +119,79 @@ function GENERATE_KEYWORD_STRATEGY() {
     'Keyword_Strategy tracks which keywords are working:\n\n' +
     '- Generate Keyword Strategy creates new keyword ideas (what you just ran)\n' +
     '- Mine Keywords scans your logged jobs for new keyword candidates\n' +
-    '- Any keyword marked "Avoid" in Recommended_Action is underperforming -- drop it from your searches.'
+    '- Any keyword marked "Avoid" in Recommended_Action is underperforming -- set its Drop column to "Drop" and run Drop Keywords to stop searching it.'
   );
+}
+
+// Removes Keyword_Search_List rows whose Search_Query matches a keyword
+// marked "Drop" in Keyword_Strategy's Drop column (case/whitespace-insensitive
+// match, since that's how the keyword text was originally written into both
+// sheets). Shared by DROP_KEYWORDS() below and MINE_KEYWORDS() (08_Keyword_
+// Mining.gs), which purges before mining so a dropped keyword doesn't get
+// re-suggested. Keyword_Strategy itself is never touched -- the Drop marker
+// and Recommended_Action history stay exactly as they are.
+function purgeDroppedKeywords_(ss) {
+  var searchListSheet = ss.getSheetByName("Keyword_Search_List");
+  var strategySheet   = ss.getSheetByName("Keyword_Strategy");
+  if (!searchListSheet || !strategySheet) return 0;
+
+  var stratLastRow = strategySheet.getLastRow();
+  if (stratLastRow <= 1) return 0;
+
+  var stratMap = getHeaderMap_(strategySheet);
+  var kwCol    = getCol_(stratMap, ["Keyword"]);
+  var dropCol  = getCol_(stratMap, ["Drop"]);
+  if (!kwCol || !dropCol) return 0;
+
+  var stratData = strategySheet
+    .getRange(2, 1, stratLastRow - 1, strategySheet.getLastColumn())
+    .getValues();
+
+  var dropSet = {};
+  for (var i = 0; i < stratData.length; i++) {
+    var kw   = String(stratData[i][kwCol - 1]).trim().toLowerCase();
+    var drop = String(stratData[i][dropCol - 1]).trim();
+    if (drop === "Drop" && kw !== "") dropSet[kw] = true;
+  }
+
+  if (Object.keys(dropSet).length === 0) return 0;
+
+  var slMap      = getHeaderMap_(searchListSheet);
+  var slQueryCol = getCol_(slMap, ["Search_Query"]);
+  if (!slQueryCol) return 0;
+
+  var purgedCount = 0;
+  var slLastRow   = searchListSheet.getLastRow();
+  for (var r = slLastRow; r >= 2; r--) {
+    var cellQuery = String(searchListSheet.getRange(r, slQueryCol).getValue()).trim().toLowerCase();
+    if (dropSet[cellQuery]) {
+      searchListSheet.deleteRow(r);
+      purgedCount++;
+    }
+  }
+  return purgedCount;
+}
+
+function DROP_KEYWORDS() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  var searchListSheet = ss.getSheetByName("Keyword_Search_List");
+  var strategySheet   = ss.getSheetByName("Keyword_Strategy");
+  if (!searchListSheet || !strategySheet) {
+    ui.alert("Missing sheet. Confirm Keyword_Search_List and Keyword_Strategy both exist.");
+    return;
+  }
+
+  var purgedCount = purgeDroppedKeywords_(ss);
+
+  if (purgedCount === 0) {
+    ui.alert(
+      "No keywords marked \"Drop\" in Keyword_Strategy were found in Keyword_Search_List.\n\n" +
+      "Set a keyword's Drop column to \"Drop\" in Keyword_Strategy, then run this again."
+    );
+    return;
+  }
+
+  ui.alert("Done.\n\n✓ " + purgedCount + " row(s) removed from Keyword_Search_List.");
 }
