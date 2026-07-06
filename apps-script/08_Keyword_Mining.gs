@@ -37,50 +37,10 @@ function MINE_KEYWORDS() {
     return;
   }
 
-  var stratLastRow = strategySheet.getLastRow();
-  var stratMap     = getHeaderMap_(strategySheet);
-  var dropSet      = {};
+  var purgedCount = purgeDroppedKeywords_(ss);
 
-  if (stratLastRow > 1) {
-    var stratData = strategySheet
-      .getRange(2, 1, stratLastRow - 1, strategySheet.getLastColumn())
-      .getValues();
-
-    var sKeywordCol = getCol_(stratMap, ["Keyword"]);
-    var sActionCol  = getCol_(stratMap, ["Recommended_Action"]);
-    var sActualCol  = getCol_(stratMap, ["Actual_Count"]);
-    var sTargetCol  = getCol_(stratMap, ["Target_Count"]);
-
-    for (var i = 0; i < stratData.length; i++) {
-      var kw     = sKeywordCol ? String(stratData[i][sKeywordCol - 1]).trim().toLowerCase() : "";
-      var action = sActionCol  ? String(stratData[i][sActionCol  - 1]).trim() : "";
-      var actual = sActualCol  ? Number(stratData[i][sActualCol  - 1]) : 0;
-      var target = sTargetCol  ? Number(stratData[i][sTargetCol  - 1]) : 0;
-
-      if (action === "Drop" && actual >= target && kw !== "") {
-        dropSet[kw] = true;
-      }
-    }
-  }
-
-  var slMap      = getHeaderMap_(searchListSheet);
-  var slQueryCol = getCol_(slMap, ["Search_Query"]);
-  var slLastRow  = searchListSheet.getLastRow();
-  var purgedCount = 0;
-
-  if (slLastRow > 1 && slQueryCol && Object.keys(dropSet).length > 0) {
-    for (var r = slLastRow; r >= 2; r--) {
-      var cellQuery = String(
-        searchListSheet.getRange(r, slQueryCol).getValue()
-      ).trim().toLowerCase();
-      if (dropSet[cellQuery]) {
-        searchListSheet.deleteRow(r);
-        purgedCount++;
-      }
-    }
-  }
-
-  slLastRow = searchListSheet.getLastRow();
+  var slMap        = getHeaderMap_(searchListSheet);
+  var slLastRow    = searchListSheet.getLastRow();
   var existingKeys = {};
   var slToolCol    = getCol_(slMap, ["Tool"]);
   var slBizCol     = getCol_(slMap, ["Business_Area"]);
@@ -154,7 +114,7 @@ function MINE_KEYWORDS() {
                " additional combinations ready for your next run.\n";
   }
   if (purgedCount > 0) {
-    summary += "✓ " + purgedCount + " dropped + target-met rows removed before writing.";
+    summary += "✓ " + purgedCount + " dropped keyword row(s) removed from Keyword_Search_List before writing.";
   }
 
   ui.alert(summary);

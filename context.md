@@ -2,6 +2,89 @@
 
 ---
 
+## Session: 2026-07-05
+
+### What Was Done
+
+**Feature batch shipped (paused mid-build from prior session), then pushed to the live personal pipeline via git + clasp:**
+- Setup Wizard auto-runs `GENERATE_KEYWORD_STRATEGY()` right after finishing (wrapped in try/catch, before `FF_SETUP_COMPLETE` is set)
+- 6-step guided first-session walkthrough tour (`showTourStep_` in `03_Helpers.gs`, standalone alerts, Cancel on any step sets `FF_TOUR_SKIPPED` and silences the rest)
+- Per-session popups: AI Fit Notes after each job logged, session-yield summary at End Session
+- Log New Job sidebar overhaul: auto-opens after Start Session, live countdown ("N of M logged"), form clears after save, N/A placeholder on Client Name, halfway-point keyword-switch popup, auto-closes when yield target reached
+- New Proposal_Generator input sidebar (`22_Proposal_Generator_Sidebar.gs` + `ProposalGeneratorSidebar.html`) -- row picker + Bid_1st-4th/Boost_Connects/Proposal_Status/Notes, since Job_Scoring needs no manual input anymore
+- Pre-existing bug caught and fixed along the way: `END_SESSION`'s `prop.deleteAllProperties()` wiped every script property (API key included) every session end -- replaced with scoped `deleteProperty()` calls for only the 8 session-specific keys
+
+**Discovered `freelanceflow-template` (the folder used as "the template" in prior sessions) is actually bound to Sawandi's own real, in-use "FreelanceFlow | Upwork Bidding Pipeline" spreadsheet, not a dedicated template.** Created a genuine dedicated **Production Master Template** via `clasp create` (Sheet ID `1pQ8AfB4I9Pjb6QCUAGvBRBvFTgQsdAvC4ezK1wQLXCs`, script ID `1wZZ6hIG-RNeD3kwPAYvXBe0f_Bk1wlqu5JaCu8mDJkSN2OMbrB_0qtP8`, local folder `freelanceflow-production-master/`). This is now the canonical source for template copies and clasp pushes going forward, alongside the personal-pipeline `freelanceflow-template/` (see memory `project_freelanceflow_production_master.md`).
+
+**Drove the full manual 10-job walkthrough test myself** (persona Jordan Ellis, bookkeeping niche) via Playwright browser automation against a fresh copy, following `FreelanceFlow_Operations_and_Walkthrough.docx`'s Part B script exactly -- Setup Wizard, Start Session, all 10 jobs logged, scoring/classification, proposals sent, all 4 contract paths (Fixed Completed, Fixed Ended Early, Hourly Completed, Hourly Ended Early). Mid-test correction from the user: all 10 jobs had blank `Job_Link`, which gates the deterministic scoring formulas entirely -- fixed by batch-typing fake Upwork URLs into the column, confirming Job_Link truly is the trigger for `Discovery_Action`/scoring.
+
+**Friction log compiled from the walkthrough, 4 findings:**
+1. Tour Step 6 fired mid-Setup-Wizard (stacked with the keyword-strategy summary dialog) -- the wizard's own sheet creation counts as a "selection change" onto Proposal_Generator
+2. Proposal_Tracker: rapid-fire "Sent" edits across multiple rows lost a row (two edits computed the same "first empty row" before either wrote) and double-incremented `MTD_Proposals_Sent`
+3. Hourly_Log: rapid Tab-across-row entry left `Amount` blank and no revenue recorded for every row in the batch
+4. Contract_Tracker "Ended Early" appeared to double-count revenue already recognized via a Released milestone (flagged as a code-reading concern, confirmed via live test this session)
+
+**All 4 bugs fixed, in stages, each verified by targeted live re-tests on fresh Production Master copies (not the full 10-job script -- Setup Wizard + 2-4 seeded jobs targeting just the fixed code path):**
+
+- **Ended Early double-count** -- added `getContractRecognizedRevenue_(ss, discoveryId, contractType)` in `03_Helpers.gs` (sums Released milestones for Fixed, all Hourly_Log entries for Hourly). The Ended Early handler now treats the entered amount as the contract's final total and only adds the delta beyond what's already recognized. Completed branch refactored to call the same helper. **Verified correct on first attempt**: released a $300 milestone, then Ended Early with $300 again -- MTD_Revenue stayed at $300, not $600.
+
+- **Tour Step 6 premature firing** -- `onSelectionChange` now checks `FF_SETUP_COMPLETE === 'true'` before firing, since the wizard's own sheet creation was triggering it. **Verified correct on first attempt**: no premature popup during wizard init; fired correctly once setup finished and Proposal_Generator was genuinely reached.
+
+- **Proposal_Tracker race, attempt 1 (LockService)** -- wrapped the exists-check + find-empty-row + write block in `LockService.getScriptLock()`, plus locked `incrementConnectsHelperMetric_`'s own read-modify-write. **First re-verification round found this did NOT work** -- added temporary debug logging (`console.log` calls, since removed... actually left in the throwaway test copies, not in canonical source) directly in the Apps Script web editor and proved two concurrent "Sent" executions both computed `nextTrackerRow=3` independently, ~1 second apart, despite the lock.
+
+- **Proposal_Tracker race, attempt 2 (appendRow)** -- replaced the manual "find first empty row + 22 separate `setCellValue_` calls" with `tracker.appendRow(ptRowValues)`, where `ptRowValues` is built by looking up each field's column index via the existing header map (still no hardcoded columns). This removes the race at its root since Sheets determines the true current last row server-side at write time. **Re-verified: all 3 concurrent "Sent" edits correctly created their own tracker row, no lost rows** -- but surfaced a narrower, related bug: `MTD_Proposals_Sent`/`MTD_Connects_Used` only reflected 1 of 2 successful row creations.
+
+- **Proposal_Tracker metric-increment race (SpreadsheetApp.flush)** -- root cause: Apps Script batches pending spreadsheet writes rather than committing them immediately, so releasing a lock right after `setValue()`/`appendRow()` doesn't guarantee the write actually landed before the next execution acquires the lock and reads. Added `SpreadsheetApp.flush()` before releasing the lock in `incrementConnectsHelperMetric_` and right after `tracker.appendRow()`. **Verified: 3 concurrent "Sent" edits gave exactly correct MTD_Proposals_Sent=4 and MTD_Connects_Used=24** (both matched baseline + 3 expected increments).
+
+- **Hourly_Log race, attempt 1 (column-range check)** -- rewrote the handler to check whether the edited range's columns included `Hours_Logged`, looping over every row in the range and reading current sheet values instead of trusting `e.value`. **Re-verification found this still failed** -- added top-level debug logging (`console.log` of every `handleEdit` invocation's sheet/row/col/A1 range) and proved Google Sheets sometimes genuinely never dispatches `onEdit` at all for a specific cell during a fast Tab-across-row entry (Discovery_ID and Hours_Logged were silently dropped while Job_Title/Log_Date fired normally for the same rows). No in-code range check can compensate for a trigger that's never invoked.
+
+- **Hourly_Log race, real fix (decouple recompute from edited column)** -- removed the "only if Hours_Logged in edited range" gate entirely. Now *any* edit anywhere on Hourly_Log recomputes Amount for every touched row from whatever Hours_Logged currently holds, since at least one cell per row reliably fires. **Verified: both rows in a rapid Tab-across-row batch computed correctly on the first attempt** (4hrs*$50=$200, 3hrs*$50=$150), revenue tracked correctly too ($350, no drops or double-counts).
+
+**All fixes committed to git (5 commits: `93783bc` Ended Early + both first-attempt race fixes, `03e4874` Proposal_Tracker appendRow, `7049829` Hourly_Log decouple, `556c4df` SpreadsheetApp.flush) and pushed to `visualkirby/Upwork-Acquisition-Pipeline`. Each round also clasp-pushed to both `freelanceflow-template` (personal live pipeline) and `freelanceflow-production-master`.**
+
+**Verification method note:** re-enabled `mcp__playwright__*` (moved deny -> allow in `.claude/settings.local.json`) multiple times this session for live browser-driven testing, reverting to `deny` each time per standing instruction. Each fresh test copy required a full Google OAuth re-authorization click-through (per-copy, since Apps Script authorization doesn't carry over from the source spreadsheet). Two throwaway test copies from this session ("FreelanceFlow - Bugfix Verification Test 2026-07-05" and "...Round 2") still exist in Drive with some temporary debug `console.log` lines added directly via the Apps Script web editor (never synced back to canonical source) -- candidates for manual deletion, no Drive-delete tool available to do it directly.
+
+### What Is Next
+- Two throwaway verification test copies in Drive still need manual deletion (see note above)
+- Record a 10-minute Loom demo walkthrough (still open from 2026-07-04)
+- Build the pre-launch / launch-day / post-launch plan for LinkedIn, r/freelance, r/upwork (append to `G:\My Drive\Benchline Analytics\Important_Plans\Benchline_Product_And_Job_Search_Plan_2026-06-30.md`)
+- Cross-reference this and the 2026-07-04 session's contract/chat/revenue logic against the PipelineIQ SaaS app before that build starts (`project_freelanceflow_pipelineiq_crossref.md`)
+- Confirm with Sawandi whether "Bake FILTER pull architecture into Library + template" (open item from 2026-07-04) is still open or was folded into this session's work
+- Consider whether the same "Sheets sometimes never dispatches onEdit for a specific cell during rapid multi-cell entry" root cause affects any OTHER handleEdit blocks in `14_Edit_Trigger.gs` beyond Hourly_Log (Job_Discovery, Contract_Tracker, Proposal_Generator) -- not audited this session, only found via targeted testing of the two reported bugs
+
+---
+
+## Session: 2026-07-05 (cont.)
+
+### What Was Done
+
+**Menu reorder + sheet tab reorder + new Drop Keywords feature, per Sawandi's exact spec, shipped just before cutting the Gumroad production copy:**
+- `System Tools` menu fully reordered (`01_Menu.gs`): FreelanceFlow Setup first, then Start/End Session, then logging items (Log New Job/Log Proposal Bid/Import Client Chat/Log New Contract), then analysis items (Run Job Classification/Run AI Proposals/Analyze Job Workflow/Analyze Session Patterns/Analyze Bid Patterns -- kept per Sawandi's confirmation, his list omitted it by accident), then keyword items (Generate Keyword Strategy/Mine Keywords/**Drop Keywords**, new), Snapshot Month End, API key items, diagnostics, and Reset System last
+- New `reorderPipelineTabs_(ss)` in `00_Setup_Wizard.gs`, called at the end of `wizard_initialize` -- moves every tab into a fixed final order (Job_Discovery through Monthly_Performance per Sawandi's spec) independent of creation order, then deletes the leftover default "Sheet1". Lower-risk than reordering the actual sheet-creation/dependency sequence.
+- New "Drop" dropdown column on `Keyword_Strategy` (`applyKeywordStrategyValidation_`) -- a manual user override, separate from the AI-computed `Recommended_Action` column. New `purgeDroppedKeywords_(ss)` + `DROP_KEYWORDS()` in `18_Keyword_Strategy.gs` remove matching rows from `Keyword_Search_List` only; the `Keyword_Strategy` row itself (and its Drop marker) is never touched, per Sawandi's confirmed choice.
+- **Found and fixed a pre-existing dead-code bug along the way**: `MINE_KEYWORDS()` already had a "purge dropped keywords first" block, but it checked `Recommended_Action === "Drop"` -- a value that formula (`Lib_KeywordStrategy.gs`'s `buildKeywordStrategyFormula`) can never actually produce (only "Complete"/"Keep Testing"/"Avoid"). That purge had silently never fired since it was written. Replaced with a shared `purgeDroppedKeywords_()` call keyed off the new manual Drop column, so Mine Keywords' auto-purge-before-mining now actually works.
+
+**All of it verified live before shipping** (fresh copy off the updated Production Master, via Playwright): full menu order confirmed, all 15 tabs confirmed in the exact requested order with Sheet1 deleted, Drop dropdown confirmed selectable, Drop Keywords confirmed removing exactly the right row count from Keyword_Search_List while leaving the Keyword_Strategy row untouched. Pushed via git + clasp to both `freelanceflow-template` and `freelanceflow-production-master` before the verification copy was even made.
+
+**Created the actual launch artifacts:**
+- **Gumroad production copy**, named plainly **"FreelanceFlow"** (Sheet ID `1Xv2Dt_nc55F8eOVULxIZbOAJsqca8upzZVzzFuzsDuQ`) -- untouched, wizard not run, this is the file customers get via "File > Make a copy"
+- **Sawandi's own personal copy**, "FreelanceFlow - Sawandi's Upwork Pipeline" (Sheet ID `12CdpGyMx9KRE8InOxGrBqos3Y87eLTf2Kjmd3dXTInI`) -- untouched, Sawandi will run the Setup Wizard himself with his real info rather than Claude driving it
+- **Loom demo copy**, "FreelanceFlow - Loom Demo Copy" (Sheet ID `12Yk8N6g44Z5zfeTBBSGDF5-_1thlkIz-wp6tN93pveY`) -- untouched, ready for Sawandi to record the demo walkthrough on
+
+**Compiled a full list of every throwaway FreelanceFlow test/verification copy in Drive (10 files spanning this session back through 2026-07-03's E2E testing) via `search_files`, since no Drive-delete tool exists in this environment** -- reported all 10 with links for Sawandi to delete manually (Bugfix Verification Test x2, Menu-Order Verify, Walkthrough Test (Jordan Ellis) in 4 variants across sessions, Master Template v2, E2E Test Copy x2). Confirmed what to keep: the 3 new copies above, the dev "Production Master Template" (still needed for future clasp pushes), and "FreelanceFlow | Upwork Bidding Pipeline" (Sawandi's real, currently-in-use personal pipeline with live data -- not a test copy).
+
+### What Is Next
+- Sawandi to manually delete the 10 throwaway test copies listed above (links given, no tool available to do it directly)
+- Sawandi to run the Setup Wizard on "FreelanceFlow - Sawandi's Upwork Pipeline" with his real info, replacing his old live pipeline (`FreelanceFlow | Upwork Bidding Pipeline`) as his working copy going forward
+- Record the 10-minute Loom demo walkthrough using "FreelanceFlow - Loom Demo Copy" (long-open item, copy is now ready)
+- Set up Gumroad listing pointing at the new "FreelanceFlow" production copy; update the 3 placeholder `https://gumroad.com` links in `page-freelanceflow.php` once live
+- Build the pre-launch / launch-day / post-launch plan for LinkedIn, r/freelance, r/upwork (append to `G:\My Drive\Benchline Analytics\Important_Plans\Benchline_Product_And_Job_Search_Plan_2026-06-30.md`)
+- Cross-reference this and the 2026-07-04 session's contract/chat/revenue logic against the PipelineIQ SaaS app before that build starts (`project_freelanceflow_pipelineiq_crossref.md`)
+- Confirm with Sawandi whether "Bake FILTER pull architecture into Library + template" (open item from 2026-07-04) is still open or was folded into this session's work
+- Consider whether the "Sheets sometimes never dispatches onEdit for a specific cell during rapid multi-cell entry" root cause (found in Hourly_Log) affects other `14_Edit_Trigger.gs` blocks -- not audited
+
+---
+
 ## Session: 2026-05-09
 
 ### What Was Done
