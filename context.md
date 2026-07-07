@@ -2,6 +2,40 @@
 
 ---
 
+## Session: 2026-07-07
+
+### What Was Done
+
+**Root-caused and fixed why a real customer's fresh copy of FreelanceFlow never showed the System Tools menu -- two separate, stacked bugs, only fully diagnosed via a long live debugging chain with Sawandi testing each step in the browser.**
+
+1. **`onOpen()` auto-launch bug.** `00_Setup_Wizard.gs`'s `onOpen()` called `buildSystemMenu_()` then `PropertiesService.getScriptProperties()` to auto-open the wizard on first load. Since `onOpen` is a simple trigger and a fresh copy has never been authorized by its new owner, touching `PropertiesService` there causes the whole trigger to be blocked by Apps Script's authorization gate -- not just that line. Fixed by stripping `onOpen()` down to just `buildSystemMenu_()` and dropping the auto-launch entirely; the Setup Guide already documented opening the wizard manually, so nothing was actually lost.
+2. **FreelanceFlow-Library not shared publicly (the real blocker).** Even after the `onOpen()` fix, the menu still didn't appear on fresh copies. Diagnostic chain: confirmed the Gumroad-linked Sheet ID was correct, confirmed via `clasp pull` that the live code matched the fix exactly, ruled out a Google account "Verify it's you" security checkpoint, then had Sawandi check the copy's own Apps Script Executions log (0 executions logged -- the trigger wasn't even attempting to run) and manually run `onOpen` from the script editor, which surfaced the real error: `Library with identifier FFLib is missing (perhaps it was deleted, or you don't have read access?)`. Checked the Library's Drive permissions directly -- shared with literally nobody but the owner (`skirby@visualdreamland.com`). Since Apps Script must resolve every manifest-declared library dependency before any function in a project can run, this blocked the entire script for any non-owner account, which is also why the simple trigger never logged an execution attempt. **This would have blocked every real customer, not just the `onOpen` bug.** Fixed by Sawandi sharing the Library "Anyone with the link" / Viewer via the Share dialog.
+
+**Pushed the `onOpen()` fix to all 4 deployment targets** (Production Master, Gumroad copy, personal copy, Loom demo copy) via the swap-`.clasp.json`-scriptId-and-push pattern, restored `.clasp.json` to the Production Master default afterward. Committed and pushed to `visualkirby/Upwork-Acquisition-Pipeline` (`c97834c`), bundled with the 2026-07-06 session log entry that had been sitting uncommitted.
+
+**Created `FreelanceFlow_Setup_Guide (Updated)`** (new Google Doc, same limitation as before -- no tool exists to edit an existing Google Doc in place), merging the existing guide with two additions: a new "Getting Your Copy" section covering the full path from the Gumroad receipt email through "File > Make a copy," and an authorization-consent step inserted into "Opening the Setup Wizard" (Google's OAuth screen on first menu click, expected and one-time). Sawandi swapped the Gumroad Content tab link to the new doc and deleted the old one.
+
+**Demo video plan changed from Loom to OBS Studio + YouTube (Unlisted).** Loom's free tier caps recordings at ~5 minutes; the drafted script runs ~10 minutes. Updated `Benchline_Analytics_Infrastructure_Setup.docx`: renamed Section 4's heading from "FreelanceFlow Loom Demo Video Script" to "FreelanceFlow Demo Video Script," changed the 4.3 checklist item from "Upload to Loom" to "Upload the final video to YouTube as Unlisted," and cleaned the now-inconsistent "for the Loom demo" wording out of the section's intro line.
+
+**Reviewed the Infrastructure Setup doc with Sawandi and corrected a real discrepancy:** Section 3.6 showed the Pro tier ($127) listing as fully published, but the live site marks it "Coming Soon" -- Pro is built on Gumroad but not published, gated by Gumroad's 30-day account-age restriction. Split the single "Publish both listings" checkbox into a checked "Publish Template listing" line and an unchecked "Publish Pro listing (blocked by...)" line so the doc reflects reality.
+
+**Appended a "Week 2 Check-In: July 8-10, 2026" section to `Benchline_Product_And_Job_Search_Plan_2026-06-30.docx`** with a status note (FreelanceFlow live, the two bugs above, Pro tier gated, WooCommerce/Stripe intentionally deferred until real revenue) and a day-by-day 3-day plan: Wed (record + upload demo, Gmail "Send mail as" check), Thu (embed demo link, register remaining Phase 1 staffing agencies), Fri (LinkedIn recruiter outreach, Green Belt/SNHU status check-in).
+
+**Sawandi got an organic beta-tester lead via LinkedIn** (Bhagyasree Mallavarapu, a senior data analyst with 10 years' experience who's hit her own Upwork friction) and offered her free access via a Gumroad 100%-off discount code once the demo/guide/site polish is done. Advised him to run the full fresh-account signup flow through himself one more time before sending it to her, given the exact bug found this session, and to prepare 2-3 specific feedback questions rather than an open-ended ask.
+
+### Key Notes
+- The Library-sharing bug is the more consequential of the two fixes -- the `onOpen` fix alone would not have unblocked real customers, since the Library dependency failure blocks the entire script regardless of trigger code
+- `clasp pull` into a scratch directory (rather than trusting `git`'s local state) was the key step that ruled out a stale deployment as the cause and pointed the investigation toward the Library instead
+- No tool exists to change Drive sharing permissions programmatically -- the Library share fix had to be done by Sawandi manually
+
+### What Is Next
+- Verify the full customer signup flow end-to-end one more time (fresh Google account, copy, menu, authorization prompt, wizard) before sending access to the LinkedIn beta tester
+- Record the OBS demo, upload to YouTube (Unlisted), embed the link in `page-freelanceflow.php` and the Gumroad listing
+- Create the "FreelanceFlow Setup Call" Cal.com event type once the Pro tier's 30-day Gumroad restriction lifts
+- Decide on WooCommerce + Stripe (Section 5 of the Infrastructure doc) only once FreelanceFlow has real revenue -- explicitly deferred for now
+
+---
+
 ## Session: 2026-07-06
 
 ### What Was Done
