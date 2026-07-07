@@ -2,6 +2,61 @@
 
 ---
 
+## Session: 2026-07-06
+
+### What Was Done
+
+**Gumroad product listing content drafted (not yet published) -- FreelanceFlow $47 template tier:**
+- Wrote Summary + 5 feature bullets (AI Job Scoring, AI-Generated Proposals, Connect Spend Tracking, Contract and Revenue Tracking, Guided Setup Wizard) for the existing Name/Description fields
+- Confirmed with Sawandi: $47 flat only for now (no Pro tier bundled -- Gumroad blocks combining a product with a service call until the account is 30 days old), no refund policy (digital template)
+- Drafted receipt fields: button text "Access Your Template" (21/26 chars, chosen over "Download" since delivery is a Drive link/copy, not a file) and a custom thank-you message referencing the "File > Make a copy" + Setup Wizard flow, per the delivery method confirmed from `Benchline_Analytics_Infrastructure_Setup.docx`
+
+**Pro tier ($127) content drafted for later, once the 30-day account restriction lifts:**
+- Name/Description/Summary/feature bullets (same 5 as base plus "1:1 Setup Call"), confirmed scope is just the base template + a setup call, nothing else added
+- Separate receipt custom message including a `[Cal.com booking link]` placeholder
+- New Cal.com event type spec drafted for this call: "FreelanceFlow Setup Call," 30 min, Google Meet, `freelanceflow-setup` slug -- distinct from the existing Discovery Call/Product Walkthrough sales-funnel events, since this is post-purchase onboarding, not a sales call. Not yet created in Cal.com (Cal.com itself isn't set up yet).
+
+**Shipped a real feature: Projects sheet for portfolio management.** Sawandi noticed the Setup Wizard's portfolio step (Step 6) had no field for a project description, and portfolio data lived only as scattered `Portfolio_N`/`Portfolio_N_Keywords` key-value rows in Settings.
+- New **Projects** sheet (`Project_Name`, `Description`, `Keywords`) is now the single source of truth for portfolio data, created and populated by the wizard, inserted right before Settings in `reorderPipelineTabs_`'s tab order
+- `SetupWizard.html` Step 6 gained a Description textarea per project row
+- `00_Setup_Wizard.gs`: new `initProjectsSheet_()`; `initSettingsSheet_` no longer writes `Portfolio_N` rows; `getPortfolioMapFromSettings_` rewritten as `getPortfolioMapFromProjects_`, header-mapped off the new sheet (feeds Proposal_Generator's Portfolio_Project matching formula and Keyword Strategy generation)
+- `05_AI_Context.gs`: `Portfolio_All` (the string fed into every AI proposal prompt) is now built from Projects as `Name: Description` pairs instead of just names off Settings -- the actual point of adding descriptions
+- `18_Keyword_Strategy.gs` repointed to the renamed function
+- `library/Lib_ProposalGenerator.gs`: fallback message updated to reference the Projects sheet instead of Settings' old Portfolio_1-5 rows -- shipped as **Library v22**
+- Caught and fixed a bug this same change introduced: `RESET_TO_BEFORE_SETUP`'s hardcoded sheet-delete list and both reset functions' alert text didn't mention the new Projects sheet (`04_Reset.gs`) -- fixed so factory reset actually clears it and the soft reset's "kept" list is accurate
+
+**Also committed leftover uncommitted work from the 2026-07-05 session** (`01_Menu.gs` menu reorder, `08_Keyword_Mining.gs` Drop Keywords purge fix) that had been clasp-pushed live back then but never made it into git -- found via `git status` showing unexpected pre-existing diffs, committed separately from today's own work.
+
+**Deployment incident -- discovered `.clasp.json` drift, then discovered the Production Master Sheet was in Trash, then fully recreated all 4 deployment targets.**
+1. Before the first push, cross-checked `apps-script/.clasp.json`'s scriptId against memory and found it had drifted back to `1bYZnJPfm5nqnfzFcZjhRym7HryuHdYP_uqjz75mko75EoOoUDx0sUAuK` -- the script ID for Sawandi's real, in-use personal Upwork pipeline (the exact mixup documented from 2026-07-05), not the Production Master. Caught before any push landed there; had Sawandi pull the 3 correct script IDs directly from each Sheet's Project Settings instead of trusting stored memory.
+2. Pushed the Projects-sheet feature, then the Library v22 bump, then the reset-function fix to all 3 known targets (Production Master, personal copy, Loom demo copy) across several rounds, swapping `.clasp.json`'s scriptId each time and restoring it to the Production Master default afterward -- all confirmed successful.
+3. While getting a view-only Drive share link for the Production Master (for the Gumroad Content tab), Sawandi found that Sheet sitting in his Trash -- not something either of us did directly; most likely swept up by accident during the 2026-07-05 test-copy cleanup, since several similarly-named copies were flagged for manual deletion around then.
+4. Sawandi didn't trust a restore-from-trash given the accumulated confusion over which files were current, and asked for a full recreation instead of a restore.
+5. Recreated all 4 deployment targets from scratch via `clasp create --type sheets`: Production Master Template (hidden, dev-only), Gumroad copy ("FreelanceFlow"), personal copy ("FreelanceFlow - Sawandi's Upwork Pipeline"), and Loom Demo Copy. Current code (including Library v22 pin) pushed to all 4, each verified live via `get_file_metadata` (correct title, not trashed) before being trusted. New IDs recorded in memory `project_freelanceflow_production_master.md`; old IDs (including the trashed old Production Master) kept in that same memory for Sawandi's manual deletion once he's spot-checked the new files.
+6. New feedback memory saved (`feedback_recreate_over_restore.md`): when file/deployment state is uncertain or has drifted before, Sawandi prefers full recreation over restoring/trusting an existing file, even if that file checks out fine on inspection.
+
+**Created two new Google Docs in `G:\My Drive\FreelanceFlow-Template\`** (no tool exists to edit the old Setup Guide doc in place, only create new ones):
+- **Setup Guide (Updated)** -- full refresh of the existing guide: added the Step 6 Description field and its own note about editing the Projects sheet post-setup, updated the "what happens on launch" list and the full sheet table to current state (16 sheets), removed the stale reference to Followup_Tracker (removed back on 2026-07-04), added a line pointing to the new User Manual
+- **User Manual** (new doc) -- full System Tools menu + all 16 sheets, using the 6-step guided tour's popup content as the spine for the "Your First Session" section, with additional sections for contracts/chat, AI automation, performance analysis, keyword management, portfolio management, and system maintenance (reset, diagnostics, API key) that the tour itself doesn't cover
+- Old Setup Guide doc and the "(Updated)" suffix on the new one both still need manual cleanup (delete old, rename new) -- no Drive delete/rename tool available
+
+### What Is Next
+- Delete the old FreelanceFlow_Setup_Guide doc (https://docs.google.com/document/d/19dugWMeRv0nUJNJaHFfW_fce2IP-xDkPyrs9Au4vxYg) and rename "FreelanceFlow_Setup_Guide (Updated)" to the correct name
+- Drive cleanup: delete the 4 superseded 2026-07-05-batch spreadsheets (old Production Master -- was in Trash, old Gumroad/personal/Loom copies; full old IDs in memory `project_freelanceflow_production_master.md`) once the new ones are spot-checked, plus the still-unconfirmed 10 throwaway test/verification copies flagged back on 2026-07-05 (never confirmed deleted)
+- Get the view-only Drive share link (Share > Anyone with the link > Viewer) for the NEW Production Master (Sheet ID `17x3oS3OLoEhuaWzN5UbgXHNUOYeDnfG0aJjOiAR7OEM`) and paste it into the Gumroad Content tab with the "File > Make a copy, then follow the Setup Wizard" note
+- Finish and publish the Gumroad $47 FreelanceFlow listing using this session's drafted Summary/feature bullets/button text/custom message
+- Save the drafted $127 Pro tier listing for later -- launch once the Gumroad account passes 30 days old
+- Create the "FreelanceFlow Setup Call" Cal.com event type (30 min, Google Meet, `freelanceflow-setup` slug) once Cal.com itself is set up (blocked on the separate, still-pending Cal.com setup in `Benchline_Analytics_Infrastructure_Setup.docx`)
+- Run the Setup Wizard on the new personal copy (Sheet ID `1oxQ5nmykAtvlbsGkkmeTfxVIwcbVK3NgbpbpRYLxAM4`) with Sawandi's real info
+- Record the 10-minute Loom demo walkthrough on the new Loom Demo Copy (Sheet ID `1lu7bQn2lE2_UeWxEj4_NegvCvIjlosJFRsWrV6pn-a4`)
+- Update the 3 placeholder `https://gumroad.com` links in `page-freelanceflow.php` once the Gumroad listing is live
+- Build the pre-launch / launch-day / post-launch plan for LinkedIn, r/freelance, and r/upwork (append to `G:\My Drive\Benchline Analytics\Important_Plans\Benchline_Product_And_Job_Search_Plan_2026-06-30.md`)
+- Cross-reference the contract/chat/revenue logic against the PipelineIQ SaaS app before that build starts (`project_freelanceflow_pipelineiq_crossref.md`)
+- Open item, status unconfirmed: "Bake FILTER pull architecture into Library + template" -- check with Sawandi whether still open
+- Not audited: whether the "Sheets sometimes never dispatches onEdit for a specific cell during rapid entry" root cause (found in Hourly_Log) also affects other `14_Edit_Trigger.gs` blocks
+
+---
+
 ## Session: 2026-07-05
 
 ### What Was Done

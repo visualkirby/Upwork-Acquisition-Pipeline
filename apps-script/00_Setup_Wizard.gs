@@ -13,11 +13,6 @@ var FORMULA_PREFILL_ROWS = 500;
 
 function onOpen() {
   buildSystemMenu_();
-  var prop = PropertiesService.getScriptProperties();
-  if (prop.getProperty('FF_SETUP_COMPLETE') !== 'true') {
-    Utilities.sleep(2000);
-    openSetupWizard_();
-  }
 }
 
 function openSetupWizard_() {
