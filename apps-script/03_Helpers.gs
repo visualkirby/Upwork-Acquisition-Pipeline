@@ -244,13 +244,15 @@ function parseAiFitNotes_(notes) {
 
 // ------------------------------------------------------------------------
 // GUIDED FIRST-SESSION TOUR
-// A fixed 6-step walkthrough chained across the first real session (see
+// A fixed 7-step walkthrough chained across the first real session (see
 // trigger points in 18_Keyword_Strategy.gs, 12_Session_Management.gs,
-// 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs, and onSelectionChange
-// below). Each step is a standalone modal (OK continues, Cancel skips)
-// gated on its own one-time-seen flag, same convention as
-// showWalkthroughOnce_ above -- but Cancel on ANY step sets FF_TOUR_SKIPPED,
-// which silences every remaining step for good, not just that one.
+// 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs, 11_Job_Classifier.gs, and
+// onSelectionChange below). Each step is a standalone modal (OK continues,
+// Cancel skips), title auto-prefixed with 👉 so it reads as part of the tour
+// instead of blending into ordinary alerts/warnings, gated on its own
+// one-time-seen flag, same convention as showWalkthroughOnce_ above -- but
+// Cancel on ANY step sets FF_TOUR_SKIPPED, which silences every remaining
+// step for good, not just that one.
 // ------------------------------------------------------------------------
 function showTourStep_(key, title, message) {
   var prop = PropertiesService.getScriptProperties();
@@ -259,7 +261,7 @@ function showTourStep_(key, title, message) {
   prop.setProperty(key, 'true');
 
   var ui       = SpreadsheetApp.getUi();
-  var response = ui.alert(title, message + '\n\n(Cancel skips the rest of this guided tour.)', ui.ButtonSet.OK_CANCEL);
+  var response = ui.alert('👉 ' + title, message + '\n\n(Cancel skips the rest of this guided tour.)', ui.ButtonSet.OK_CANCEL);
   if (response === ui.Button.CANCEL) {
     prop.setProperty('FF_TOUR_SKIPPED', 'true');
   }

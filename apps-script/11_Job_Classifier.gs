@@ -93,6 +93,12 @@ function RUN_JOB_CLASSIFICATION() {
     msg += "\n⚠ " + noTemplateMatch + " rows had no matching template and no Is_Default row is set in Proposal_Templates.";
   }
   ui.alert(msg);
+
+  showTourStep_(
+    'FF_TOUR_STEP7_LOG_BID_SEEN',
+    'Log Your Bids',
+    'Each classified job needs its competing bid info. Use System Tools > Log Proposal Bid to enter the top 4 bids and get an AI bid recommendation.'
+  );
 }
 
 // Reads Proposal_Templates into plain rows for FFLib.pickWeightedTemplate.
