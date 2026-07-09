@@ -60,8 +60,6 @@ select:focus, input:focus { border-color: #03a6a5; }
     <div class="tagline">Log New Contract</div>
   </div>
 
-  <div id="walkthrough-box"></div>
-
   <label>Contract</label>
   <select id="job-select"></select>
 
@@ -168,14 +166,6 @@ function getMilestones() {
 function init() {
   google.script.run
     .withSuccessHandler(function (r) {
-      if (r.showWalkthrough) {
-        document.getElementById('walkthrough-box').innerHTML =
-          '<div class="info-box">Fixed-price contracts break into milestones -- add each one\'s ' +
-          'description and amount below. Mark a milestone Released in Milestone_Tracker once funds ' +
-          'actually clear, and that\'s what counts as revenue. Hourly contracts have no milestones -- ' +
-          'log hours directly in the new Hourly_Log sheet instead, and each entry counts as revenue ' +
-          'as you log it.</div>';
-      }
       var select = document.getElementById('job-select');
       (r.contracts || []).forEach(function (c) {
         var opt = document.createElement('option');

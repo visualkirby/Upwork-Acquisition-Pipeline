@@ -139,9 +139,10 @@ function REPAIR_FORMULAS() {
   }
 
   if (hlSheet) {
+    ensureHourlyLogStatusColumn_(hlSheet);
     var hlHeaders = hlSheet.getRange(1, 1, 1, hlSheet.getLastColumn()).getValues()[0];
     applyHourlyLogValidation_(hlSheet, hlHeaders);
-    repaired.push('Hourly_Log (Amount/Hours_Logged number formats)');
+    repaired.push('Hourly_Log (Amount/Hours_Logged number formats, Status dropdown)');
   }
 
   // Additional_Questions flows backwards (Proposal_Generator -> Job_Scoring
@@ -167,6 +168,49 @@ function REPAIR_FORMULAS() {
   }
 
   ui.alert('Formulas repaired:\n\n' + repaired.join('\n'));
+}
+
+// Adds a Status column to an existing Hourly_Log sheet that predates it --
+// appended after the last column so it doesn't shift any header a formula
+// or trigger already references by position elsewhere (everything in this
+// project resolves columns by header name, but no reason to disturb layout
+// unnecessarily). Backfills existing rows from Contract_Tracker's current
+// Status for that Discovery_ID (defaulting to Active) so old test/real rows
+// don't sit blank against the new dropdown. No-ops if Status already exists.
+function ensureHourlyLogStatusColumn_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf('Status') !== -1) return;
+
+  var statusCol = lastCol + 1;
+  sheet.getRange(1, statusCol).setValue('Status').setFontWeight('bold');
+
+  if (sheet.getLastRow() < 2) return;
+
+  var map   = getHeaderMap_(sheet);
+  var idCol = getCol_(map, ['Discovery_ID']);
+  if (!idCol) return;
+
+  var contracts = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Contract_Tracker');
+  var ctStatusByDiscoveryId = {};
+  if (contracts && contracts.getLastRow() > 1) {
+    var ctMap       = getHeaderMap_(contracts);
+    var ctIdCol     = getCol_(ctMap, ['Discovery_ID']);
+    var ctStatusCol = getCol_(ctMap, ['Status']);
+    if (ctIdCol && ctStatusCol) {
+      var ctData = contracts.getRange(2, 1, contracts.getLastRow() - 1, contracts.getLastColumn()).getValues();
+      ctData.forEach(function (row) {
+        ctStatusByDiscoveryId[String(row[ctIdCol - 1])] = row[ctStatusCol - 1];
+      });
+    }
+  }
+
+  var lastRow  = sheet.getLastRow();
+  var idValues = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+  var statusValues = idValues.map(function (row) {
+    return [ctStatusByDiscoveryId[String(row[0])] || 'Active'];
+  });
+  sheet.getRange(2, statusCol, statusValues.length, 1).setValues(statusValues);
 }
 
 function copyRowDown_(sheet, cols) {

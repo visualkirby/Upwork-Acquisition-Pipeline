@@ -205,6 +205,62 @@ function getContractRecognizedRevenue_(ss, discoveryId, contractType) {
   return total;
 }
 
+// True only if this Discovery_ID has at least one Milestone_Tracker row AND
+// every one of them is Released -- a contract with zero milestones (data not
+// set up yet) or any still-Pending/Funded/Delivered one is not done.
+function allMilestonesReleased_(ss, discoveryId) {
+  var sheet = ss.getSheetByName("Milestone_Tracker");
+  if (!sheet || sheet.getLastRow() < 2) return false;
+
+  var map       = getHeaderMap_(sheet);
+  var idCol     = getCol_(map, ["Discovery_ID"]);
+  var statusCol = getCol_(map, ["Status"]);
+  if (!idCol || !statusCol) return false;
+
+  var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  var found = false;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][idCol - 1]) !== String(discoveryId)) continue;
+    found = true;
+    if (String(data[i][statusCol - 1]).trim() !== "Released") return false;
+  }
+  return found;
+}
+
+// Sets this contract's Contract_Tracker Status to Completed and rolls up
+// Total_Released -- same computation the manual Status=Completed edit runs
+// (see 14_Edit_Trigger.gs's CONTRACT_TRACKER block), factored out so
+// Milestone_Tracker's auto-complete check can call it too. Guarded on
+// "already Completed" so re-triggering (e.g. a milestone row getting
+// re-saved) doesn't recompute/rewrite Status every time.
+function autoCompleteContract_(ss, discoveryId) {
+  var contracts = ss.getSheetByName("Contract_Tracker");
+  if (!contracts || contracts.getLastRow() < 2) return;
+
+  var ctMap        = getHeaderMap_(contracts);
+  var ctIdCol      = getCol_(ctMap, ["Discovery_ID"]);
+  var ctStatusCol  = getCol_(ctMap, ["Status"]);
+  var ctTypeCol    = getCol_(ctMap, ["Contract_Type"]);
+  var ctTotalRelCol = getCol_(ctMap, ["Total_Released"]);
+  if (!ctIdCol || !ctStatusCol) return;
+
+  var data = contracts.getRange(2, 1, contracts.getLastRow() - 1, contracts.getLastColumn()).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][ctIdCol - 1]) !== String(discoveryId)) continue;
+
+    if (String(data[i][ctStatusCol - 1]).trim() === "Completed") return;
+
+    var row = i + 2;
+    if (ctTotalRelCol) {
+      var ctType  = ctTypeCol ? data[i][ctTypeCol - 1] : "";
+      var ctTotal = getContractRecognizedRevenue_(ss, discoveryId, ctType);
+      contracts.getRange(row, ctTotalRelCol).setValue(ctTotal);
+    }
+    contracts.getRange(row, ctStatusCol).setValue("Completed");
+    return;
+  }
+}
+
 // First-session walkthrough plumbing. Checks+marks a one-time script-property
 // flag (same FF_-prefixed convention as FF_SETUP_COMPLETE) and returns whether
 // it had ALREADY been seen before this call -- so callers can gate on "was
@@ -244,15 +300,18 @@ function parseAiFitNotes_(notes) {
 
 // ------------------------------------------------------------------------
 // GUIDED FIRST-SESSION TOUR
-// A fixed 7-step walkthrough chained across the first real session (see
-// trigger points in 18_Keyword_Strategy.gs, 12_Session_Management.gs,
-// 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs, 11_Job_Classifier.gs, and
-// onSelectionChange below). Each step is a standalone modal (OK continues,
-// Cancel skips), title auto-prefixed with 👉 so it reads as part of the tour
-// instead of blending into ordinary alerts/warnings, gated on its own
-// one-time-seen flag, same convention as showWalkthroughOnce_ above -- but
-// Cancel on ANY step sets FF_TOUR_SKIPPED, which silences every remaining
-// step for good, not just that one.
+// A fixed 10-step walkthrough chained across a freelancer's first job, start
+// to finish (see trigger points in 18_Keyword_Strategy.gs,
+// 12_Session_Management.gs, 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs,
+// 11_Job_Classifier.gs, 20_Contract_Setup.gs, and onSelectionChange below).
+// Steps 8 (Chat Import) and 9 (Contract Setup) replaced those two sidebars'
+// old standalone showWalkthroughOnce_-style info-box tips -- folded into this
+// sequential chain instead of staying separate, one-off nudges. Each step is
+// a standalone modal (OK continues, Cancel skips), title auto-prefixed with
+// 👉 so it reads as part of the tour instead of blending into ordinary
+// alerts/warnings, gated on its own one-time-seen flag, same convention as
+// showWalkthroughOnce_ above -- but Cancel on ANY step sets FF_TOUR_SKIPPED,
+// which silences every remaining step for good, not just that one.
 // ------------------------------------------------------------------------
 function showTourStep_(key, title, message) {
   var prop = PropertiesService.getScriptProperties();

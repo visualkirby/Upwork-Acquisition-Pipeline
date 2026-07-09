@@ -54,9 +54,7 @@ function chat_getContext() {
     }
   }
 
-  var showWalkthrough = !showWalkthroughSeen_('FF_WALKTHROUGH_CHAT_LOG_SEEN');
-
-  return { pendingDiscoveryId: pendingId, jobs: jobs, showWalkthrough: showWalkthrough };
+  return { pendingDiscoveryId: pendingId, jobs: jobs };
 }
 
 function chat_parseTranscript(discoveryId, rawText) {

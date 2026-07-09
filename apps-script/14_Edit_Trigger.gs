@@ -322,8 +322,15 @@ function handleEdit(e) {
       incrementConnectsHelperMetric_(ss, "MTD_Interviews", 1);
       // Client replied -- Upwork opens an ongoing chat thread at this point.
       // Auto-open the Chat Import sidebar so the freelancer can paste it in
-      // right away instead of hunting for the menu item later.
+      // right away instead of hunting for the menu item later. Tour step
+      // fires first (same order Step 3 uses for Log New Job) so the alert
+      // resolves before the sidebar takes focus.
       if (ptIdCol) {
+        showTourStep_(
+          "FF_TOUR_STEP8_CHAT_IMPORT_SEEN",
+          "Import the Chat",
+          "The client replied, so the Import Client Chat sidebar is opening now -- paste the conversation and it'll parse it into Client_Chat_Log automatically."
+        );
         openChatImportSidebar_(sheet.getRange(row, ptIdCol).getValue());
       }
     }
@@ -334,6 +341,11 @@ function handleEdit(e) {
       // creates the Contract_Tracker row itself on submit, so nothing needs
       // to be pre-created here.
       if (ptIdCol) {
+        showTourStep_(
+          "FF_TOUR_STEP9_CONTRACT_SETUP_SEEN",
+          "Log the Contract",
+          "You're hired! The Log New Contract sidebar is opening now -- for fixed-price work, add each milestone's description and amount. For hourly work, just set a rate; a starter row lands in Hourly_Log ready for you to log hours."
+        );
         openContractSetupSidebar_(sheet.getRange(row, ptIdCol).getValue());
       }
     }
@@ -357,33 +369,7 @@ function handleEdit(e) {
   if (sheetName === "Milestone_Tracker") {
     var msStatusCol = getCol_(map, ["Status"]);
     if (msStatusCol && col === msStatusCol) {
-      var msOldVal = e.oldValue;
-      var msNewVal = e.value;
-
-      if (msNewVal === "Funded" && msOldVal !== "Funded") {
-        var msFundedCol = getCol_(map, ["Funded_Date"]);
-        if (msFundedCol && sheet.getRange(row, msFundedCol).getValue() === "") {
-          sheet.getRange(row, msFundedCol).setValue(new Date());
-        }
-      }
-      if (msNewVal === "Delivered" && msOldVal !== "Delivered") {
-        var msDeliveredCol = getCol_(map, ["Delivered_Date"]);
-        if (msDeliveredCol && sheet.getRange(row, msDeliveredCol).getValue() === "") {
-          sheet.getRange(row, msDeliveredCol).setValue(new Date());
-        }
-      }
-      if (msNewVal === "Released" && msOldVal !== "Released") {
-        var msReleasedCol = getCol_(map, ["Released_Date"]);
-        if (msReleasedCol && sheet.getRange(row, msReleasedCol).getValue() === "") {
-          sheet.getRange(row, msReleasedCol).setValue(new Date());
-        }
-        var msAmountCol = getCol_(map, ["Amount"]);
-        if (msAmountCol) {
-          var msAmountVal = Number(sheet.getRange(row, msAmountCol).getValue()) || 0;
-          incrementConnectsHelperMetric_(ss, "MTD_Revenue", msAmountVal);
-          incrementConnectsHelperMetric_(ss, "Monthly_Revenue", msAmountVal);
-        }
-      }
+      applyMilestoneStatusEffects_(ss, sheet, row, map, e.oldValue, e.value);
     }
     return;
   }
@@ -484,33 +470,21 @@ function handleEdit(e) {
   // when the Hours_Logged cell's own edit event never arrives.
   // ----------------------------------------------------------
   if (sheetName === "Hourly_Log") {
-    var hlHoursCol  = getCol_(map, ["Hours_Logged"]);
-    var hlIdCol     = getCol_(map, ["Discovery_ID"]);
-    var hlAmountCol = getCol_(map, ["Amount"]);
-    if (!hlHoursCol || !hlIdCol || !hlAmountCol) return;
-
     var hlEditStartRow = e.range.getRow();
     var hlEditNumRows  = e.range.getNumRows();
 
     for (var hlRow = hlEditStartRow; hlRow < hlEditStartRow + hlEditNumRows; hlRow++) {
       if (hlRow <= 1) continue;
+      applyHourlyLogAmount_(ss, sheet, hlRow, map);
+    }
 
-      var hlHoursVal    = Number(sheet.getRange(hlRow, hlHoursCol).getValue()) || 0;
-      var hlDiscoveryId = sheet.getRange(hlRow, hlIdCol).getValue();
-      if (!hlDiscoveryId) continue;
-
-      var hlRate        = getContractHourlyRate_(ss, hlDiscoveryId);
-      var hlNewAmount   = hlHoursVal * hlRate;
-      var hlOldAmount   = Number(sheet.getRange(hlRow, hlAmountCol).getValue()) || 0;
-      var hlDelta       = hlNewAmount - hlOldAmount;
-
-      if (hlNewAmount !== hlOldAmount) {
-        sheet.getRange(hlRow, hlAmountCol).setValue(hlNewAmount);
-      }
-      if (hlDelta !== 0) {
-        incrementConnectsHelperMetric_(ss, "MTD_Revenue", hlDelta);
-        incrementConnectsHelperMetric_(ss, "Monthly_Revenue", hlDelta);
-      }
+    // Status is a single dropdown cell (not a fill/paste range like
+    // Hours_Logged commonly is), so this checks the specific edited column
+    // rather than looping every row in e.range the way the Amount recompute
+    // above does.
+    var hlStatusCol = getCol_(map, ["Status"]);
+    if (hlStatusCol && col === hlStatusCol) {
+      applyHourlyLogStatusEffects_(ss, sheet, row, map, e.oldValue, e.value);
     }
     return;
   }
@@ -518,10 +492,12 @@ function handleEdit(e) {
   // ----------------------------------------------------------
   // PROPOSAL_GENERATOR
   // Per-behavior logic lives in computeBidRecommendation_/applyBoostConnects_/
-  // handleProposalStatusChange_ below (not inlined here) -- both this trigger
-  // AND the Proposal_Generator sidebar's proposal_saveEntry (22_Proposal_
-  // Generator_Sidebar.gs) need to fire the same automation, since script-
-  // driven writes from that sidebar never trigger handleEdit on their own.
+  // generateAdditionalAnswers_/handleProposalStatusChange_ below (not inlined
+  // here) -- both this trigger AND the Proposal_Generator sidebar's
+  // proposal_saveBids/proposal_saveBoost/proposal_saveQuestions/
+  // proposal_saveStatusNotes (22_Proposal_Generator_Sidebar.gs) need to fire
+  // the same automation, since script-driven writes from that sidebar never
+  // trigger handleEdit on their own.
   // ----------------------------------------------------------
   if (sheetName === "Proposal_Generator") {
 
@@ -534,37 +510,9 @@ function handleEdit(e) {
     var boostColPG = getCol_(map, ["Boost_Connects"]);
     if (boostColPG && col === boostColPG) applyBoostConnects_(ss, sheet, row, map);
 
-    // Additional_Answers regenerates whenever Additional_Questions changes --
-    // always regenerates (not just once), matching Boost_Connects' regen-on-
-    // any-edit pattern above, since the freelancer may add or edit a line
-    // after already getting an answer back.
+    // Additional_Answers regenerates whenever Additional_Questions changes
     var questionsColPG = getCol_(map, ["Additional_Questions"]);
-    if (questionsColPG && col === questionsColPG) {
-      var questionsVal = sheet.getRange(row, questionsColPG).getValue();
-      var answersColPG = getCol_(map, ["Additional_Answers"]);
-
-      if (questionsVal !== "" && questionsVal !== null && answersColPG) {
-        var titleColAQ = getCol_(map, ["Job_Title"]);
-        var descColAQ  = getCol_(map, ["Description"]);
-        var titleValAQ = titleColAQ ? sheet.getRange(row, titleColAQ).getValue() : "";
-        var descValAQ  = descColAQ  ? sheet.getRange(row, descColAQ).getValue()  : "";
-
-        sheet.getRange(row, answersColPG).setValue("Drafting answers...");
-        var answersResult;
-        try {
-          var aqApiKey         = getApiKey_();
-          var aqSettings       = getSettings_();
-          var aqPortfolioCtx   = FFLib.getPortfolioContext(aqSettings);
-          var aqFreelancerName = aqSettings['Freelancer_Name'] || 'the freelancer';
-          answersResult = FFLib.generateAdditionalAnswers(
-            questionsVal, titleValAQ, descValAQ, aqPortfolioCtx, aqFreelancerName, aqApiKey
-          );
-        } catch (err) {
-          answersResult = err.message;
-        }
-        sheet.getRange(row, answersColPG).setValue(answersResult);
-      }
-    }
+    if (questionsColPG && col === questionsColPG) generateAdditionalAnswers_(ss, sheet, row, map);
 
     // Proposal_Status changing (Skip stamps a date; Sent syncs to Proposal_Tracker)
     var proposalStatusCol = getCol_(map, ["Proposal_Status"]);
@@ -700,6 +648,42 @@ function applyBoostConnects_(ss, sheet, row, map) {
     aiProposal = err.message;
   }
   sheet.getRange(row, aiPropColPG).setValue(aiProposal);
+}
+
+// Drafts answers to Additional_Questions -- self-contained (reads
+// Additional_Questions itself and no-ops if blank) so it can be called either
+// from handleEdit's per-column check above or directly from the
+// Proposal_Generator sidebar. Always regenerates when called (not just once)
+// since the freelancer may add or edit a line after already getting an
+// answer back -- callers are responsible for only calling this when the
+// question text actually changed.
+function generateAdditionalAnswers_(ss, sheet, row, map) {
+  var questionsColPG = getCol_(map, ["Additional_Questions"]);
+  var answersColPG   = getCol_(map, ["Additional_Answers"]);
+  if (!questionsColPG || !answersColPG) return;
+
+  var questionsVal = sheet.getRange(row, questionsColPG).getValue();
+  if (questionsVal === "" || questionsVal === null) return;
+
+  var titleColAQ = getCol_(map, ["Job_Title"]);
+  var descColAQ  = getCol_(map, ["Description"]);
+  var titleValAQ = titleColAQ ? sheet.getRange(row, titleColAQ).getValue() : "";
+  var descValAQ  = descColAQ  ? sheet.getRange(row, descColAQ).getValue()  : "";
+
+  sheet.getRange(row, answersColPG).setValue("Drafting answers...");
+  var answersResult;
+  try {
+    var aqApiKey         = getApiKey_();
+    var aqSettings       = getSettings_();
+    var aqPortfolioCtx   = FFLib.getPortfolioContext(aqSettings);
+    var aqFreelancerName = aqSettings['Freelancer_Name'] || 'the freelancer';
+    answersResult = FFLib.generateAdditionalAnswers(
+      questionsVal, titleValAQ, descValAQ, aqPortfolioCtx, aqFreelancerName, aqApiKey
+    );
+  } catch (err) {
+    answersResult = err.message;
+  }
+  sheet.getRange(row, answersColPG).setValue(answersResult);
 }
 
 // Skip stamps Proposal_Skip_Date. Sent syncs the row into Proposal_Tracker
@@ -927,4 +911,108 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
     "that automatically opens a sidebar to import the chat. When you're hired, mark Hired -- " +
     "that automatically opens a sidebar to log the contract."
   );
+}
+
+// Runs Milestone_Tracker's Status-transition side effects (date stamps,
+// revenue, Contract_Tracker auto-complete) -- assumes the Status cell has
+// already been written with newVal by the caller. Self-contained so it can
+// be called from handleEdit's per-column check above or directly from the
+// Contract Progress sidebar.
+function applyMilestoneStatusEffects_(ss, sheet, row, map, oldVal, newVal) {
+  if (newVal === "Funded" && oldVal !== "Funded") {
+    var msFundedCol = getCol_(map, ["Funded_Date"]);
+    if (msFundedCol && sheet.getRange(row, msFundedCol).getValue() === "") {
+      sheet.getRange(row, msFundedCol).setValue(new Date());
+    }
+  }
+  if (newVal === "Delivered" && oldVal !== "Delivered") {
+    var msDeliveredCol = getCol_(map, ["Delivered_Date"]);
+    if (msDeliveredCol && sheet.getRange(row, msDeliveredCol).getValue() === "") {
+      sheet.getRange(row, msDeliveredCol).setValue(new Date());
+    }
+  }
+  if (newVal === "Released" && oldVal !== "Released") {
+    var msReleasedCol = getCol_(map, ["Released_Date"]);
+    if (msReleasedCol && sheet.getRange(row, msReleasedCol).getValue() === "") {
+      sheet.getRange(row, msReleasedCol).setValue(new Date());
+    }
+    var msAmountCol = getCol_(map, ["Amount"]);
+    if (msAmountCol) {
+      var msAmountVal = Number(sheet.getRange(row, msAmountCol).getValue()) || 0;
+      incrementConnectsHelperMetric_(ss, "MTD_Revenue", msAmountVal);
+      incrementConnectsHelperMetric_(ss, "Monthly_Revenue", msAmountVal);
+    }
+
+    // Once every milestone belonging to this contract is Released, the
+    // contract itself is done -- auto-complete it instead of leaving
+    // Contract_Tracker's Status as a separate manual step.
+    var msIdColForComplete = getCol_(map, ["Discovery_ID"]);
+    var msDiscoveryId = msIdColForComplete ? sheet.getRange(row, msIdColForComplete).getValue() : "";
+    if (msDiscoveryId && allMilestonesReleased_(ss, msDiscoveryId)) {
+      autoCompleteContract_(ss, msDiscoveryId);
+    }
+  }
+}
+
+// Computes Amount = Hours_Logged x this contract's Hourly_Rate for one
+// Hourly_Log row and feeds the delta into Connects_Helper's revenue metrics.
+// Self-contained (reads Hours_Logged/Discovery_ID itself) so it can be
+// called from handleEdit's per-row loop above or directly from the Contract
+// Progress sidebar after appending a new row.
+function applyHourlyLogAmount_(ss, sheet, row, map) {
+  var hlHoursCol  = getCol_(map, ["Hours_Logged"]);
+  var hlIdCol     = getCol_(map, ["Discovery_ID"]);
+  var hlAmountCol = getCol_(map, ["Amount"]);
+  if (!hlHoursCol || !hlIdCol || !hlAmountCol) return;
+
+  var hlHoursVal    = Number(sheet.getRange(row, hlHoursCol).getValue()) || 0;
+  var hlDiscoveryId = sheet.getRange(row, hlIdCol).getValue();
+  if (!hlDiscoveryId) return;
+
+  var hlRate      = getContractHourlyRate_(ss, hlDiscoveryId);
+  var hlNewAmount = hlHoursVal * hlRate;
+  var hlOldAmount = Number(sheet.getRange(row, hlAmountCol).getValue()) || 0;
+  var hlDelta     = hlNewAmount - hlOldAmount;
+
+  if (hlNewAmount !== hlOldAmount) {
+    sheet.getRange(row, hlAmountCol).setValue(hlNewAmount);
+  }
+  if (hlDelta !== 0) {
+    incrementConnectsHelperMetric_(ss, "MTD_Revenue", hlDelta);
+    incrementConnectsHelperMetric_(ss, "Monthly_Revenue", hlDelta);
+  }
+}
+
+// Propagates an Hourly_Log row's Status to that contract's Contract_Tracker
+// Status -- the Hourly equivalent of Milestone_Tracker driving auto-complete,
+// since Hourly contracts have no milestones to signal "done" off of. Self-
+// contained (reads Discovery_ID itself) so it can be called from handleEdit's
+// per-column check above or directly from the Contract Progress sidebar.
+function applyHourlyLogStatusEffects_(ss, sheet, row, map, oldVal, newVal) {
+  if (String(oldVal) === String(newVal)) return;
+
+  var idCol = getCol_(map, ["Discovery_ID"]);
+  var discoveryId = idCol ? sheet.getRange(row, idCol).getValue() : "";
+  if (!discoveryId) return;
+
+  if (newVal === "Completed") {
+    autoCompleteContract_(ss, discoveryId);
+    return;
+  }
+
+  var contracts = ss.getSheetByName("Contract_Tracker");
+  if (!contracts || contracts.getLastRow() < 2) return;
+
+  var ctMap       = getHeaderMap_(contracts);
+  var ctIdCol     = getCol_(ctMap, ["Discovery_ID"]);
+  var ctStatusCol = getCol_(ctMap, ["Status"]);
+  if (!ctIdCol || !ctStatusCol) return;
+
+  var ctIdValues = contracts.getRange(2, ctIdCol, contracts.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < ctIdValues.length; i++) {
+    if (String(ctIdValues[i][0]) === String(discoveryId)) {
+      contracts.getRange(i + 2, ctStatusCol).setValue(newVal);
+      return;
+    }
+  }
 }

@@ -2,6 +2,50 @@
 
 ---
 
+## Session: 2026-07-08
+
+### What Was Done
+
+**Guided tour: Step 7 added, then extended to 10 steps total.** Added Step 7 ("Log Your Bids," fires at the end of `RUN_JOB_CLASSIFICATION`) after Sawandi flagged he didn't remember seeing Step 6 -- also baked a 👉 prefix into `showTourStep_` itself so every tour title reads as part of the tour instead of blending into ordinary alerts. Later in the session, Steps 8 ("Import the Chat") and 9 ("Log the Contract") were converted from the two sidebars' old standalone one-time info-box tips (`showWalkthroughOnce_`, removed entirely from `19_Chat_Import.gs`/`20_Contract_Setup.gs` and their HTML) into proper sequential tour steps firing right before their sidebars auto-open on Interview=Y/Hired=Y. Step 10 ("Track This Contract") added, firing the first time a contract is saved, pointing to the new Log Contract Progress sidebar.
+
+**Root-caused and fixed a real AI-token-waste bug in the Log Proposal Bid sidebar, then rebuilt it as a 4-step wizard.** The original single-form sidebar (`22_Proposal_Generator_Sidebar.gs` + `ProposalGeneratorSidebar.html`) resubmitted every field on every save, including fields already saved from a prior visit (the form re-prefills from the sheet after each save) -- and the AI-triggering automation only checked "is this field non-blank," not "did it change," so e.g. adding Notes after bids were already entered silently re-ran the bid-recommendation and proposal-regen AI calls for the exact same values.
+- Rebuilt as 4 steps -- Bids / Boost Connects / Additional Questions / Status & Notes -- each saving only its own fields via dedicated functions (`proposal_saveBids`/`proposal_saveBoost`/`proposal_saveQuestions`/`proposal_saveStatusNotes`)
+- Extracted the previously-inlined Additional_Questions -> Additional_Answers automation out of `handleEdit` into a reusable `generateAdditionalAnswers_` (`14_Edit_Trigger.gs`), matching the existing `computeBidRecommendation_`/`applyBoostConnects_` pattern, so the new step could call it
+- Iterated through 2 rounds of live testing feedback: first added per-field change-detection guards (compare submitted value to the sheet's current value before firing the AI call), then **removed those same guards** once testing showed step-isolation alone already fixes the resend-waste bug and the guards were just blocking legitimate re-triggers (e.g. retyping the identical bid value during a retest showed nothing happening). Final design fires whenever a step's field is provided, matching `handleEdit`'s own per-column-edit semantics -- safe because each step's payload structurally can't carry another step's fields anymore
+- Added a Skip button to every step (Step 1 skips to Step 2 without saving bids; Step 4's Skip resets the wizard without saving Status/Notes, since there's no Step 5 to advance to)
+
+**Milestone_Tracker -> Contract_Tracker auto-complete.** Once every milestone belonging to a contract reaches Released, `Contract_Tracker`'s Status now auto-flips to Completed and `Total_Released` rolls up automatically -- new `allMilestonesReleased_`/`autoCompleteContract_` helpers in `03_Helpers.gs`, wired into a new `applyMilestoneStatusEffects_` (extracted from the inline `handleEdit` block, `14_Edit_Trigger.gs`). Previously this was a fully manual step.
+
+**New "Log Contract Progress" sidebar** (`23_Contract_Progress_Sidebar.gs` + `ContractProgressSidebar.html`, new "Log Contract Progress" menu item) -- ongoing tracking, deliberately separate from Log New Contract's one-time setup:
+- Fixed contracts: per-milestone Status dropdowns; Save applies changes through the same `applyMilestoneStatusEffects_` automation as a direct cell edit
+- Hourly contracts: Date/Hours/Notes entry form; "Add Entry" appends a new row each click (never overwrites), so logging hours across multiple days is just repeated clicks; shows the last 10 entries
+- Bug found and fixed mid-testing: `google.script.run` silently drops its *entire* response (no error thrown, just a blank sidebar panel) when the returned object contains a raw `Date` -- fixed by sending `Log_Date` back to the client as an ISO string instead of a Date object
+- `contract_saveSetup` (`20_Contract_Setup.gs`) now auto-creates a starter `Hourly_Log` row (pre-linked Discovery_ID/Job_Title) when a contract is set up as Hourly, mirroring the milestone pre-fill Fixed contracts already got
+
+**Hourly_Log Status column added** (requested mid-session so Hourly contracts get the same sheet-column-driven status propagation `Milestone_Tracker` already has for Fixed contracts):
+- New Status column (Active/Completed dropdown) added to `Hourly_Log`'s schema (`00_Setup_Wizard.gs`) plus validation
+- Retrofit path added to `REPAIR_FORMULAS` (`ensureHourlyLogStatusColumn_` in `15_Formula_Fixes.gs`) -- appends the column and backfills existing rows from `Contract_Tracker`'s current Status for any `Hourly_Log` sheet created before this column existed (like Sawandi's personal test copy)
+- New `applyHourlyLogStatusEffects_` (`14_Edit_Trigger.gs`) propagates a Status edit on any `Hourly_Log` row to that contract's `Contract_Tracker` Status, reusing `autoCompleteContract_` for the Completed transition
+- The sidebar's "Update Status" control was rewired to write through `Hourly_Log`'s most-recent row instead of `Contract_Tracker` directly, so both entry paths (direct sheet edit or sidebar) go through one single mechanism
+
+**Updated the FreelanceFlow demo video script** (Section 4 of `Benchline_Analytics_Infrastructure_Setup.docx`, edited directly via `python-docx` since the file is synced locally through Google Drive for Desktop at `G:\My Drive\Benchline Analytics\Important_Plans\`) -- extended from 10 to 11 minutes: added a new beat for Log Proposal Bid, renamed/expanded the old "Tracking Contracts and Revenue" beat to cover Contract Setup auto-opening plus Log Contract Progress, added a guided-tour mention to the hook, added a 4.1 prep-checklist item for a sample screening question.
+
+**Incidental Drive finding, not acted on:** a search for `Benchline_Analytics_Infrastructure_Setup` turned up 5 duplicate Google Docs with the identical title, all much smaller than the real 207KB `.docx` and all last-modified within about an hour of each other on 2026-07-07. Read the full content of one -- confirmed it's a near-identical (pre-this-session) copy of the real doc's content, just with some markdown-artifact formatting differences, consistent with an auto-generated conversion rather than an independent edit. Safe to delete, not touched this session.
+
+### Key Notes
+- **All of this session's code changes are uncommitted and deployed only to the personal test copy.** 13 files changed/added locally (11 modified, 2 new), pushed live via the swap-`.clasp.json`-scriptId-and-push pattern to the personal copy only, restored to the Production Master default afterward each time -- never committed to git, never pushed to GitHub, never pushed to the other 3 deployment targets (Production Master, Gumroad copy, Loom Demo Copy). Sawandi is resetting and running a full test session on the personal copy as of Session End; **this is the single most important follow-up once that test passes.**
+- `google.script.run` gotcha worth remembering for future sidebar work: returning a raw `Date` object (even nested inside a larger response object) silently drops the entire response client-side -- no error thrown, nothing in withFailureHandler, just nothing happens. Always serialize dates to ISO strings before returning from a server function.
+- The "resend wastes AI tokens" root cause was really two separate things that looked like one: (1) a single combined form resubmitting untouched fields -- fixed by splitting into steps with structurally disjoint payloads; (2) an unrelated "did it change" guard that seemed like a reasonable extra safeguard but actually just broke legitimate re-triggers once (1) had already fixed the real problem. Worth remembering not to over-fix a problem that a simpler structural change already solved.
+
+### What Is Next
+- **Top priority**: once Sawandi's in-progress reset-and-test session passes, commit this session's changes to git and push to GitHub, then clasp-push to the other 3 deployment targets (Production Master, Gumroad copy, Loom Demo Copy) -- currently only the personal copy has any of this session's work
+- Run `System Tools > Repair Formulas` on any *other* already-set-up FreelanceFlow copy (not just the personal one) once deployed, to retrofit the new Hourly_Log Status column
+- Record the updated ~11-minute OBS demo per the revised Section 4 script, upload to YouTube as Unlisted, add the link to `page-freelanceflow.php` and the Gumroad listing (long-open item, script now current)
+- Delete the 5 stale duplicate `Benchline_Analytics_Infrastructure_Setup` Google Docs found this session
+- Everything else still open from 2026-07-07 untouched this session: Gmail "Send mail as" confirmation, LinkedIn beta tester re-verification, Pro tier Cal.com event (blocked on Gumroad's 30-day restriction), WooCommerce/Stripe deferred until real revenue, Drive cleanup of old throwaway test copies, PipelineIQ crossref, and whether the "Sheets sometimes never dispatches onEdit for a specific cell during rapid entry" root cause affects other `14_Edit_Trigger.gs` blocks
+
+---
+
 ## Session: 2026-07-07
 
 ### What Was Done

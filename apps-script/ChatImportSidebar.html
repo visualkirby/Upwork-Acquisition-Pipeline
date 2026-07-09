@@ -46,8 +46,6 @@ textarea { resize: vertical; min-height: 220px; }
     <div class="tagline">Import Client Chat</div>
   </div>
 
-  <div id="walkthrough-box"></div>
-
   <div id="main-content">
     <div class="step-title">Which conversation?</div>
     <div class="step-desc">
@@ -84,12 +82,6 @@ function status(id, msg, type) {
 function init() {
   google.script.run
     .withSuccessHandler(function (r) {
-      if (r.showWalkthrough) {
-        document.getElementById('walkthrough-box').innerHTML =
-          '<div class="info-box">This sidebar parses a pasted Upwork chat transcript into ' +
-          'Client_Chat_Log, one row per message. Re-pasting later replaces this job\'s messages ' +
-          'with the fresh copy -- always paste the whole current conversation, not just new lines.</div>';
-      }
       var select = document.getElementById('job-select');
       if (!r.jobs || r.jobs.length === 0) {
         document.getElementById('main-content').style.display = 'none';

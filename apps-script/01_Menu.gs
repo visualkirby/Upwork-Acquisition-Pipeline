@@ -16,6 +16,7 @@ function buildSystemMenu_() {
     .addItem('Log Proposal Bid',         'LOG_PROPOSAL_BID')
     .addItem('Import Client Chat',        'IMPORT_CLIENT_CHAT')
     .addItem('Log New Contract',          'LOG_NEW_CONTRACT')
+    .addItem('Log Contract Progress',     'LOG_CONTRACT_PROGRESS')
     .addSeparator()
     .addItem('Run Job Classification',    'RUN_JOB_CLASSIFICATION')
     .addItem('Run AI Proposals',          'RUN_AI_PROPOSALS')

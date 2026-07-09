@@ -8,12 +8,24 @@
  * Proposal_Generator rows aren't created here (they're auto-pulled from
  * Job_Scoring's APPLY rows via a FILTER formula) -- this sidebar is a row
  * picker + entry form for the sheet's manual fields only: Bid_1st-4th,
- * Boost_Connects, Proposal_Status, Notes. Since script-driven setValue()
- * writes never fire handleEdit, proposal_saveEntry calls the same
- * automation functions handleEdit uses per-column (computeBidRecommendation_,
- * applyBoostConnects_, handleProposalStatusChange_ -- all in
- * 14_Edit_Trigger.gs) so nothing about the pipeline's behavior changes
- * depending on which entry path was used.
+ * Boost_Connects, Additional_Questions, Proposal_Status, Notes. Since
+ * script-driven setValue() writes never fire handleEdit, each save function
+ * below calls the same automation functions handleEdit uses per-column
+ * (computeBidRecommendation_, applyBoostConnects_, generateAdditionalAnswers_,
+ * handleProposalStatusChange_ -- all in 14_Edit_Trigger.gs) so nothing about
+ * the pipeline's behavior changes depending on which entry path was used.
+ *
+ * Split into 4 steps (Bids / Boost Connects / Additional Questions / Status &
+ * Notes), each saving only its own fields -- a single combined form
+ * previously resubmitted every field (including untouched ones re-prefilled
+ * from the sheet) on every save, so e.g. adding Notes after bids were already
+ * entered silently re-ran the bid recommendation AND proposal-regen AI calls
+ * for the exact same values. Splitting by step keeps unrelated fields
+ * structurally out of each save's payload -- Step 4 (Status & Notes) simply
+ * has no way to carry Bid_4th along with it anymore -- so each AI-triggering
+ * save below fires on "this step's field was provided" the same way
+ * handleEdit fires on a direct cell edit, with no separate equality check
+ * needed against the prior value.
  * ============================================================
  */
 function openProposalGeneratorSidebar_() {
@@ -60,7 +72,9 @@ function proposal_getRows() {
 }
 
 // Prefill data for a picked row, including the AI's current Bid_Recommendation
-// for context (read-only display, not an editable field in this sidebar).
+// and Additional_Answers for context (read-only display, not editable fields
+// in this sidebar). Used to prefill all 4 steps up front, so stepping through
+// the wizard never re-fetches from the sheet.
 function proposal_getRowDetails(discoveryId) {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Proposal_Generator');
@@ -71,23 +85,29 @@ function proposal_getRowDetails(discoveryId) {
   if (!row) return { ok: false, message: 'Could not find that job. Refresh and try again.' };
 
   return {
-    ok:                true,
-    bid1:              getCellValue_(sheet, row, map, ['Bid_1st']),
-    bid2:              getCellValue_(sheet, row, map, ['Bid_2nd']),
-    bid3:              getCellValue_(sheet, row, map, ['Bid_3rd']),
-    bid4:              getCellValue_(sheet, row, map, ['Bid_4th']),
-    boostConnects:     getCellValue_(sheet, row, map, ['Boost_Connects']),
-    proposalStatus:    getCellValue_(sheet, row, map, ['Proposal_Status']),
-    notes:             getCellValue_(sheet, row, map, ['Notes']),
-    bidRecommendation: getCellValue_(sheet, row, map, ['Bid_Recommendation'])
+    ok:                  true,
+    bid1:                getCellValue_(sheet, row, map, ['Bid_1st']),
+    bid2:                getCellValue_(sheet, row, map, ['Bid_2nd']),
+    bid3:                getCellValue_(sheet, row, map, ['Bid_3rd']),
+    bid4:                getCellValue_(sheet, row, map, ['Bid_4th']),
+    boostConnects:       getCellValue_(sheet, row, map, ['Boost_Connects']),
+    additionalQuestions: getCellValue_(sheet, row, map, ['Additional_Questions']),
+    additionalAnswers:   getCellValue_(sheet, row, map, ['Additional_Answers']),
+    proposalStatus:      getCellValue_(sheet, row, map, ['Proposal_Status']),
+    notes:               getCellValue_(sheet, row, map, ['Notes']),
+    bidRecommendation:   getCellValue_(sheet, row, map, ['Bid_Recommendation'])
   };
 }
 
-// Writes only the fields actually provided (blank = leave existing value
-// alone, so a partial re-visit -- e.g. filling Bid_4th after already having
-// entered Bid_1st-3rd earlier -- never clobbers what's already there), then
-// runs the same per-field automation handleEdit would run on a direct cell edit.
-function proposal_saveEntry(data) {
+// Step 1: Bids. Writes only the fields actually provided (blank = leave
+// existing value alone), and runs the bid-recommendation AI call whenever
+// Bid_4th is provided -- same trigger condition handleEdit uses for a direct
+// cell edit to Bid_4th (fires on the write, no equality check against the
+// prior value). Safe from the original resend-waste bug because Step 1's
+// payload can only ever contain bid fields -- unrelated edits made later
+// (Boost Connects, Additional Questions, Status & Notes) are separate saves
+// on separate steps and never touch Bid_4th at all.
+function proposal_saveBids(data) {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Proposal_Generator');
   if (!sheet) return { ok: false, message: 'Proposal_Generator sheet not found.' };
@@ -96,17 +116,75 @@ function proposal_saveEntry(data) {
   var row = findProposalGeneratorRowByDiscoveryId_(sheet, map, data.discoveryId);
   if (!row) return { ok: false, message: 'Could not find that job in Proposal_Generator. Refresh and try again.' };
 
-  if (data.bid1 !== '')          setCellValue_(sheet, row, map, ['Bid_1st'], Number(data.bid1));
-  if (data.bid2 !== '')          setCellValue_(sheet, row, map, ['Bid_2nd'], Number(data.bid2));
-  if (data.bid3 !== '')          setCellValue_(sheet, row, map, ['Bid_3rd'], Number(data.bid3));
-  if (data.bid4 !== '')          setCellValue_(sheet, row, map, ['Bid_4th'], Number(data.bid4));
-  if (data.boostConnects !== '') setCellValue_(sheet, row, map, ['Boost_Connects'], Number(data.boostConnects));
-  if (data.notes !== '')         setCellValue_(sheet, row, map, ['Notes'], data.notes);
-  if (data.proposalStatus)       setCellValue_(sheet, row, map, ['Proposal_Status'], data.proposalStatus);
+  if (data.bid1 !== '') setCellValue_(sheet, row, map, ['Bid_1st'], Number(data.bid1));
+  if (data.bid2 !== '') setCellValue_(sheet, row, map, ['Bid_2nd'], Number(data.bid2));
+  if (data.bid3 !== '') setCellValue_(sheet, row, map, ['Bid_3rd'], Number(data.bid3));
+  if (data.bid4 !== '') setCellValue_(sheet, row, map, ['Bid_4th'], Number(data.bid4));
 
-  if (data.bid4 !== '')          computeBidRecommendation_(ss, sheet, row, map);
+  if (data.bid4 !== '') computeBidRecommendation_(ss, sheet, row, map);
+
+  return { ok: true, bidRecommendation: getCellValue_(sheet, row, map, ['Bid_Recommendation']) };
+}
+
+// Step 2: Boost Connects (optional). Recalculates Total_Connects_Spent and
+// runs the AI proposal-regen call whenever Boost_Connects is provided -- same
+// trigger condition handleEdit uses for a direct cell edit (fires on the
+// write, no equality check). Safe from the original resend-waste bug because
+// Step 2's payload can only ever contain Boost_Connects -- edits made on
+// other steps are separate saves and never touch this field.
+function proposal_saveBoost(data) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Proposal_Generator');
+  if (!sheet) return { ok: false, message: 'Proposal_Generator sheet not found.' };
+
+  var map = getHeaderMap_(sheet);
+  var row = findProposalGeneratorRowByDiscoveryId_(sheet, map, data.discoveryId);
+  if (!row) return { ok: false, message: 'Could not find that job in Proposal_Generator. Refresh and try again.' };
+
+  if (data.boostConnects !== '') setCellValue_(sheet, row, map, ['Boost_Connects'], Number(data.boostConnects));
+
   if (data.boostConnects !== '') applyBoostConnects_(ss, sheet, row, map);
-  if (data.proposalStatus)       handleProposalStatusChange_(ss, sheet, row, map);
+
+  return { ok: true };
+}
+
+// Step 3: Additional Questions (optional). Redrafts Additional_Answers
+// whenever Additional_Questions is provided -- same trigger condition
+// handleEdit uses. Safe from the original resend-waste bug for the same
+// reason as Steps 1 and 2: this step's payload never carries any other
+// step's fields.
+function proposal_saveQuestions(data) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Proposal_Generator');
+  if (!sheet) return { ok: false, message: 'Proposal_Generator sheet not found.' };
+
+  var map = getHeaderMap_(sheet);
+  var row = findProposalGeneratorRowByDiscoveryId_(sheet, map, data.discoveryId);
+  if (!row) return { ok: false, message: 'Could not find that job in Proposal_Generator. Refresh and try again.' };
+
+  if (data.additionalQuestions !== '') setCellValue_(sheet, row, map, ['Additional_Questions'], data.additionalQuestions);
+
+  if (data.additionalQuestions !== '') generateAdditionalAnswers_(ss, sheet, row, map);
+
+  return { ok: true, additionalAnswers: getCellValue_(sheet, row, map, ['Additional_Answers']) };
+}
+
+// Step 4: Status & Notes. No AI calls at all -- handleProposalStatusChange_
+// only stamps dates / syncs to Proposal_Tracker, and is already internally
+// guarded (via Proposal_Sent_Date/Proposal_Skip_Date being blank) against
+// running its side effects twice, so it's safe to call on every save here.
+function proposal_saveStatusNotes(data) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Proposal_Generator');
+  if (!sheet) return { ok: false, message: 'Proposal_Generator sheet not found.' };
+
+  var map = getHeaderMap_(sheet);
+  var row = findProposalGeneratorRowByDiscoveryId_(sheet, map, data.discoveryId);
+  if (!row) return { ok: false, message: 'Could not find that job in Proposal_Generator. Refresh and try again.' };
+
+  if (data.notes !== '')   setCellValue_(sheet, row, map, ['Notes'], data.notes);
+  if (data.proposalStatus) setCellValue_(sheet, row, map, ['Proposal_Status'], data.proposalStatus);
+  if (data.proposalStatus) handleProposalStatusChange_(ss, sheet, row, map);
 
   return { ok: true };
 }

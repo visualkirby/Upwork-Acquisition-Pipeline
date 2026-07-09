@@ -12,6 +12,7 @@ body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1
 .logo { font-size: 18px; font-weight: 700; color: #05467c; }
 .tagline { font-size: 11px; color: #888; margin-top: 2px; }
 
+.step-indicator { font-size: 11px; font-weight: 700; color: #03a6a5; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
 .step-title { font-size: 15px; font-weight: 700; color: #05467c; margin-bottom: 4px; }
 .step-desc  { font-size: 12px; color: #555; margin-bottom: 14px; line-height: 1.5; }
 
@@ -28,9 +29,11 @@ textarea { resize: vertical; min-height: 70px; }
 
 .btn-row { display: flex; gap: 8px; margin-top: 18px; }
 .btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
-.btn-save { background: #03a6a5; color: #fff; flex: 1; }
-.btn-save:hover { background: #028888; }
-.btn-save:disabled { background: #bbb; cursor: not-allowed; }
+.btn-primary { background: #03a6a5; color: #fff; flex: 1; }
+.btn-primary:hover { background: #028888; }
+.btn-primary:disabled { background: #bbb; cursor: not-allowed; }
+.btn-secondary { background: #eef1f3; color: #333; }
+.btn-secondary:hover { background: #e0e4e7; }
 
 .status { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
 .ok      { background: #e8f5e9; color: #2e7d32; }
@@ -38,6 +41,9 @@ textarea { resize: vertical; min-height: 70px; }
 .loading { background: #e3f2fd; color: #1565c0; }
 
 .info-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-bottom: 14px; font-size: 12px; line-height: 1.5; color: #333; }
+
+.step-panel { display: none; }
+.step-panel.active { display: block; }
 </style>
 </head>
 <body>
@@ -53,46 +59,97 @@ textarea { resize: vertical; min-height: 70px; }
     <option value="">-- Select a job --</option>
   </select>
 
-  <div id="recommendation-box"></div>
+  <div id="wizard" style="display:none;">
 
-  <label>Bid Amounts (top 4 competing bids shown on Upwork)</label>
-  <div class="row2">
-    <div>
-      <label class="sub">1st</label>
-      <input type="number" id="bid1" step="0.01">
+    <div class="step-panel" id="step-1">
+      <div class="step-indicator">Step 1 of 4</div>
+      <div class="step-title">Bids</div>
+      <div class="step-desc">Enter the top 4 competing bids shown on Upwork.</div>
+
+      <div class="row2">
+        <div>
+          <label class="sub">1st</label>
+          <input type="number" id="bid1" step="0.01">
+        </div>
+        <div>
+          <label class="sub">2nd</label>
+          <input type="number" id="bid2" step="0.01">
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="sub">3rd</label>
+          <input type="number" id="bid3" step="0.01">
+        </div>
+        <div>
+          <label class="sub">4th</label>
+          <input type="number" id="bid4" step="0.01">
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="skipStep1()">Skip</button>
+        <button class="btn btn-primary" id="btn-step1-next" onclick="nextFromStep1()">Next: Get Recommendation</button>
+      </div>
     </div>
-    <div>
-      <label class="sub">2nd</label>
-      <input type="number" id="bid2" step="0.01">
+
+    <div class="step-panel" id="step-2">
+      <div class="step-indicator">Step 2 of 4</div>
+      <div class="step-title">Boost Connects</div>
+      <div class="step-desc">Optional. Only fill this in if you're boosting this proposal's connects.</div>
+
+      <div id="recommendation-box"></div>
+
+      <label>Boost Connects</label>
+      <input type="number" id="boost-connects" step="1">
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="backToStep(1)">Back</button>
+        <button class="btn btn-secondary" onclick="skipStep2()">Skip</button>
+        <button class="btn btn-primary" id="btn-step2-next" onclick="nextFromStep2()">Next</button>
+      </div>
     </div>
-  </div>
-  <div class="row2">
-    <div>
-      <label class="sub">3rd</label>
-      <input type="number" id="bid3" step="0.01">
+
+    <div class="step-panel" id="step-3">
+      <div class="step-indicator">Step 3 of 4</div>
+      <div class="step-title">Additional Questions</div>
+      <div class="step-desc">Optional. Only fill this in if the job listing asked additional screening questions.</div>
+
+      <div id="answers-box"></div>
+
+      <label>Additional Questions</label>
+      <textarea id="additional-questions" placeholder="Paste the client's screening question(s) here"></textarea>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="backToStep(2)">Back</button>
+        <button class="btn btn-secondary" onclick="skipStep3()">Skip</button>
+        <button class="btn btn-primary" id="btn-step3-next" onclick="nextFromStep3()">Next</button>
+      </div>
     </div>
-    <div>
-      <label class="sub">4th</label>
-      <input type="number" id="bid4" step="0.01">
+
+    <div class="step-panel" id="step-4">
+      <div class="step-indicator">Step 4 of 4</div>
+      <div class="step-title">Status &amp; Notes</div>
+      <div class="step-desc">No AI calls happen on this step -- safe to revisit any time.</div>
+
+      <label>Proposal Status</label>
+      <select id="proposal-status">
+        <option value="">-- No change --</option>
+        <option value="Ready">Ready</option>
+        <option value="Sent">Sent</option>
+        <option value="Skip">Skip</option>
+      </select>
+
+      <label>Notes</label>
+      <textarea id="notes"></textarea>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="backToStep(3)">Back</button>
+        <button class="btn btn-secondary" onclick="skipStep4()">Skip</button>
+        <button class="btn btn-primary" id="btn-step4-save" onclick="saveStep4()">Save</button>
+      </div>
     </div>
-  </div>
 
-  <label>Boost Connects</label>
-  <input type="number" id="boost-connects" step="1">
-
-  <label>Proposal Status</label>
-  <select id="proposal-status">
-    <option value="">-- No change --</option>
-    <option value="Ready">Ready</option>
-    <option value="Sent">Sent</option>
-    <option value="Skip">Skip</option>
-  </select>
-
-  <label>Notes</label>
-  <textarea id="notes"></textarea>
-
-  <div class="btn-row">
-    <button class="btn btn-save" id="btn-save" onclick="saveEntry()">Save</button>
   </div>
 
   <div id="status"></div>
@@ -100,17 +157,40 @@ textarea { resize: vertical; min-height: 70px; }
 </div>
 
 <script>
+var currentStep = 1;
+var TOTAL_STEPS = 4;
+
 function status(id, msg, type) {
   document.getElementById(id).innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
 }
+function clearStatus() { document.getElementById('status').innerHTML = ''; }
 function val(id) { return document.getElementById(id).value.trim(); }
+function discoveryId() { return val('job-picker'); }
+
+function showRecommendation(text) {
+  var box = document.getElementById('recommendation-box');
+  box.innerHTML = text ? '<div class="info-box"><b>Current recommendation:</b> ' + text + '</div>' : '';
+}
+
+function showAnswers(text) {
+  var box = document.getElementById('answers-box');
+  box.innerHTML = text ? '<div class="info-box"><b>Drafted answers:</b> ' + text + '</div>' : '';
+}
+
+function goToStep(n) {
+  currentStep = n;
+  for (var i = 1; i <= TOTAL_STEPS; i++) {
+    document.getElementById('step-' + i).classList.toggle('active', i === n);
+  }
+}
 
 function clearFields() {
-  ['bid1', 'bid2', 'bid3', 'bid4', 'boost-connects', 'notes'].forEach(function (id) {
+  ['bid1', 'bid2', 'bid3', 'bid4', 'boost-connects', 'additional-questions', 'notes'].forEach(function (id) {
     document.getElementById(id).value = '';
   });
   document.getElementById('proposal-status').value = '';
-  document.getElementById('recommendation-box').innerHTML = '';
+  showRecommendation('');
+  showAnswers('');
 }
 
 function init() {
@@ -129,15 +209,16 @@ function init() {
 }
 
 function loadRow() {
-  var discoveryId = val('job-picker');
+  var id = discoveryId();
   clearFields();
-  if (!discoveryId) return;
+  clearStatus();
+  document.getElementById('wizard').style.display = 'none';
+  if (!id) return;
 
   status('status', 'Loading...', 'loading');
   google.script.run
     .withSuccessHandler(function (r) {
-      status('status', '', '');
-      document.getElementById('status').innerHTML = '';
+      clearStatus();
       if (!r.ok) { status('status', r.message, 'error'); return; }
 
       document.getElementById('bid1').value = r.bid1;
@@ -145,53 +226,144 @@ function loadRow() {
       document.getElementById('bid3').value = r.bid3;
       document.getElementById('bid4').value = r.bid4;
       document.getElementById('boost-connects').value = r.boostConnects;
+      document.getElementById('additional-questions').value = r.additionalQuestions;
       document.getElementById('proposal-status').value = r.proposalStatus || '';
       document.getElementById('notes').value = r.notes;
+      showRecommendation(r.bidRecommendation);
+      showAnswers(r.additionalAnswers);
 
-      if (r.bidRecommendation) {
-        document.getElementById('recommendation-box').innerHTML =
-          '<div class="info-box"><b>Current recommendation:</b> ' + r.bidRecommendation + '</div>';
-      }
+      document.getElementById('wizard').style.display = 'block';
+      goToStep(1);
     })
     .withFailureHandler(function (e) {
       status('status', 'Error: ' + e.message, 'error');
     })
-    .proposal_getRowDetails(discoveryId);
+    .proposal_getRowDetails(id);
 }
 
-function saveEntry() {
-  var discoveryId = val('job-picker');
-  if (!discoveryId) { status('status', 'Select a job first.', 'error'); return; }
+function skipStep1() {
+  clearStatus();
+  goToStep(2);
+}
 
-  var data = {
-    discoveryId:    discoveryId,
-    bid1:           val('bid1'),
-    bid2:           val('bid2'),
-    bid3:           val('bid3'),
-    bid4:           val('bid4'),
-    boostConnects:  val('boost-connects'),
-    proposalStatus: val('proposal-status'),
-    notes:          val('notes')
-  };
+function nextFromStep1() {
+  var id = discoveryId();
+  if (!id) { status('status', 'Select a job first.', 'error'); return; }
 
-  document.getElementById('btn-save').disabled = true;
+  var data = { discoveryId: id, bid1: val('bid1'), bid2: val('bid2'), bid3: val('bid3'), bid4: val('bid4') };
+
+  document.getElementById('btn-step1-next').disabled = true;
   status('status', 'Saving...', 'loading');
 
   google.script.run
     .withSuccessHandler(function (r) {
-      document.getElementById('btn-save').disabled = false;
+      document.getElementById('btn-step1-next').disabled = false;
+      if (!r.ok) { status('status', r.message, 'error'); return; }
+      clearStatus();
+      showRecommendation(r.bidRecommendation);
+      goToStep(2);
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-step1-next').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .proposal_saveBids(data);
+}
+
+function skipStep2() {
+  clearStatus();
+  goToStep(3);
+}
+
+function nextFromStep2() {
+  var id = discoveryId();
+  var boostConnects = val('boost-connects');
+
+  if (boostConnects === '') { goToStep(3); return; }
+
+  var data = { discoveryId: id, boostConnects: boostConnects };
+
+  document.getElementById('btn-step2-next').disabled = true;
+  status('status', 'Saving...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-step2-next').disabled = false;
+      if (!r.ok) { status('status', r.message, 'error'); return; }
+      clearStatus();
+      goToStep(3);
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-step2-next').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .proposal_saveBoost(data);
+}
+
+function skipStep3() {
+  clearStatus();
+  goToStep(4);
+}
+
+function nextFromStep3() {
+  var id = discoveryId();
+  var additionalQuestions = val('additional-questions');
+
+  if (additionalQuestions === '') { goToStep(4); return; }
+
+  var data = { discoveryId: id, additionalQuestions: additionalQuestions };
+
+  document.getElementById('btn-step3-next').disabled = true;
+  status('status', 'Saving...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-step3-next').disabled = false;
+      if (!r.ok) { status('status', r.message, 'error'); return; }
+      clearStatus();
+      showAnswers(r.additionalAnswers);
+      goToStep(4);
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('btn-step3-next').disabled = false;
+      status('status', 'Error: ' + e.message, 'error');
+    })
+    .proposal_saveQuestions(data);
+}
+
+function backToStep(n) {
+  clearStatus();
+  goToStep(n);
+}
+
+function skipStep4() {
+  clearFields();
+  clearStatus();
+  document.getElementById('job-picker').value = '';
+  document.getElementById('wizard').style.display = 'none';
+}
+
+function saveStep4() {
+  var id = discoveryId();
+  var data = { discoveryId: id, proposalStatus: val('proposal-status'), notes: val('notes') };
+
+  document.getElementById('btn-step4-save').disabled = true;
+  status('status', 'Saving...', 'loading');
+
+  google.script.run
+    .withSuccessHandler(function (r) {
+      document.getElementById('btn-step4-save').disabled = false;
       if (r.ok) {
         status('status', 'Saved.', 'ok');
-        loadRow();
       } else {
         status('status', r.message, 'error');
       }
     })
     .withFailureHandler(function (e) {
-      document.getElementById('btn-save').disabled = false;
+      document.getElementById('btn-step4-save').disabled = false;
       status('status', 'Error: ' + e.message, 'error');
     })
-    .proposal_saveEntry(data);
+    .proposal_saveStatusNotes(data);
 }
 
 init();

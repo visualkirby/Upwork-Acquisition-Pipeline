@@ -54,9 +54,7 @@ function contract_getContext() {
     }
   }
 
-  var showWalkthrough = !showWalkthroughSeen_('FF_WALKTHROUGH_CONTRACT_TRACKER_SEEN');
-
-  return { pendingDiscoveryId: pendingId, contracts: jobs, showWalkthrough: showWalkthrough };
+  return { pendingDiscoveryId: pendingId, contracts: jobs };
 }
 
 function contract_saveSetup(data) {
@@ -137,6 +135,40 @@ function contract_saveSetup(data) {
       setCellValue_(milestones, msRow, msMap, ['Status'], 'Pending');
     });
   }
+
+  // Hourly contracts get one starter row in Hourly_Log, pre-linked with
+  // Discovery_ID/Job_Title so the freelancer only has to type Hours_Logged --
+  // same "land pre-filled, ready to work" treatment Fixed contracts get via
+  // their milestone rows above. Guarded on "no row for this Discovery_ID
+  // yet" so re-opening the sidebar to edit the hourly rate later doesn't
+  // spawn a fresh blank row every time.
+  if (data.contractType === 'Hourly') {
+    var hourly = ss.getSheetByName('Hourly_Log');
+    if (hourly) {
+      var hlMap   = getHeaderMap_(hourly);
+      var hlIdCol = getCol_(hlMap, ['Discovery_ID']);
+
+      var hlAlreadyExists = false;
+      if (hlIdCol && hourly.getLastRow() > 1) {
+        var hlData = hourly.getRange(2, hlIdCol, hourly.getLastRow() - 1, 1).getValues();
+        hlAlreadyExists = hlData.some(function (row) { return String(row[0]) === String(data.discoveryId); });
+      }
+
+      if (!hlAlreadyExists) {
+        var hlRow = findFirstEmptyRowByColumn_(hourly, hlIdCol || 1);
+        setCellValue_(hourly, hlRow, hlMap, ['Discovery_ID'], data.discoveryId);
+        setCellValue_(hourly, hlRow, hlMap, ['Job_Title'], jobTitle);
+        setCellValue_(hourly, hlRow, hlMap, ['Log_Date'], new Date());
+        setCellValue_(hourly, hlRow, hlMap, ['Status'], 'Active');
+      }
+    }
+  }
+
+  showTourStep_(
+    'FF_TOUR_STEP10_CONTRACT_PROGRESS_SEEN',
+    'Track This Contract',
+    'Your contract is set up. Come back to System Tools > Log Contract Progress whenever you update a milestone\'s status or log hours worked.'
+  );
 
   return { ok: true };
 }

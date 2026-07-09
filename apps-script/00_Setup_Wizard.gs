@@ -282,7 +282,7 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     { name: 'Client_Chat_Log',  headers: ['Discovery_ID','Job_Title','Client_Name','Message_Number','Sender_Name','Direction','Message_Time','Message_Text','Last_Synced'] },
     { name: 'Contract_Tracker', headers: ['Discovery_ID','Job_Title','Client_Name','Contract_Type','Contract_Value','Hourly_Rate','Start_Date','Status','Total_Released','Notes'] },
     { name: 'Milestone_Tracker', headers: ['Discovery_ID','Job_Title','Milestone_Number','Description','Amount','Status','Funded_Date','Delivered_Date','Released_Date','Notes'] },
-    { name: 'Hourly_Log',       headers: ['Discovery_ID','Job_Title','Log_Date','Hours_Logged','Amount','Notes'] },
+    { name: 'Hourly_Log',       headers: ['Discovery_ID','Job_Title','Log_Date','Hours_Logged','Amount','Status','Notes'] },
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
     { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop'] },
@@ -627,8 +627,11 @@ function applyMilestoneTrackerValidation_(sheet, headers) {
 }
 
 // Amount is script-computed on Hours_Logged edit (see 14_Edit_Trigger.gs's
-// HOURLY_LOG block) -- this just formats the two number columns so entries
-// look right from the first row, no dropdown needed (no status here).
+// HOURLY_LOG block) -- this formats the two number columns so entries look
+// right from the first row, plus a Status dropdown that mirrors
+// Contract_Tracker's Status and propagates to it on edit (applyHourlyLogStatusEffects_
+// in 14_Edit_Trigger.gs) -- Hourly contracts have no milestones to
+// auto-complete off of, so this is the equivalent signal for them.
 function applyHourlyLogValidation_(sheet, headers) {
   var amountCol = headers.indexOf('Amount') + 1;
   if (amountCol > 0) {
@@ -638,6 +641,15 @@ function applyHourlyLogValidation_(sheet, headers) {
   var hoursCol = headers.indexOf('Hours_Logged') + 1;
   if (hoursCol > 0) {
     sheet.getRange(2, hoursCol, FORMULA_PREFILL_ROWS, 1).setNumberFormat('0.00');
+  }
+
+  var statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Active', 'Completed'], true)
+    .setAllowInvalid(false)
+    .build();
+  var statusCol = headers.indexOf('Status') + 1;
+  if (statusCol > 0) {
+    sheet.getRange(2, statusCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(statusRule);
   }
 }
 
