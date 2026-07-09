@@ -60,6 +60,11 @@ function RESET_TO_AFTER_SETUP() {
   clearAllRows_(ss, 'Session_Log');
   clearAllRows_(ss, 'Monthly_Performance');
 
+  // Dashboard is a fully rebuilt layout (title/KPIs/funnel/charts), not a
+  // header+data table -- clearAllRows_ doesn't apply, so wipe it back to the
+  // same blank state ensurePipelineSheets_ creates it in.
+  clearDashboardSheet_(ss.getSheetByName('Dashboard'));
+
   // Keyword_Search_List/Keyword_Strategy keep the identity columns the
   // wizard's keyword strategy generated (Tool/Business_Area/Intent/
   // Search_Query, Keyword/Recommended_Action/Target_Count/Notes) -- only the
@@ -89,7 +94,7 @@ function RESET_TO_BEFORE_SETUP() {
     'This deletes EVERY sheet FreelanceFlow created (Settings, Connects_Helper, ' +
     'Proposal_Templates, Projects, Job_Discovery, Job_Scoring, Proposal_Generator, Proposal_Tracker, ' +
     'Client_Chat_Log, Contract_Tracker, Milestone_Tracker, Hourly_Log, Session_Log, ' +
-    'Keyword_Search_List, Keyword_Strategy, Monthly_Performance) and clears your API key. ' +
+    'Keyword_Search_List, Keyword_Strategy, Monthly_Performance, Dashboard) and clears your API key. ' +
     'The Setup Wizard reopens immediately after.\n\n' +
     'This cannot be undone. Continue?',
     ui.ButtonSet.OK_CANCEL
@@ -112,7 +117,8 @@ function RESET_TO_BEFORE_SETUP() {
     'Settings', 'Connects_Helper', 'Proposal_Templates', 'Projects',
     'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
     'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
-    'Session_Log', 'Keyword_Search_List', 'Keyword_Strategy', 'Monthly_Performance'
+    'Session_Log', 'Keyword_Search_List', 'Keyword_Strategy', 'Monthly_Performance',
+    'Dashboard'
   ];
 
   sheetNames.forEach(function (name) {

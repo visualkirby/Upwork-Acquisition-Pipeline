@@ -8,6 +8,7 @@ function buildSystemMenu_() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('System Tools')
     .addItem('FreelanceFlow Setup',       'OPEN_SETUP_WIZARD')
+    .addItem('Manage Projects',           'MANAGE_PROJECTS')
     .addSeparator()
     .addItem('Start Session',            'START_SESSION')
     .addItem('End Session',              'END_SESSION')
@@ -23,6 +24,7 @@ function buildSystemMenu_() {
     .addItem('Analyze Job Workflow',      'ANALYZE_JOB_WORKFLOW')
     .addItem('Analyze Session Patterns',  'ANALYZE_SESSION_PATTERNS')
     .addItem('Analyze Bid Patterns',      'ANALYZE_BID_PATTERNS')
+    .addItem('Build/Refresh Dashboard',   'BUILD_DASHBOARD')
     .addSeparator()
     .addItem('Generate Keyword Strategy', 'GENERATE_KEYWORD_STRATEGY')
     .addItem('Mine Keywords',            'MINE_KEYWORDS')

@@ -125,4 +125,10 @@ function SNAPSHOT_MONTH_END() {
     monthName + " " + year + " saved to Monthly_Performance.\n" +
     "Monthly_Revenue reset to 0."
   );
+
+  showTourStep_(
+    'FF_TOUR_STEP11_SNAPSHOT_SEEN',
+    'Keep Snapshotting Monthly',
+    'Run System Tools > Snapshot Month End on the last day of every month -- it rolls your MTD numbers into Monthly_Performance (which feeds the Dashboard\'s revenue trend) and resets Monthly_Revenue for the new month.'
+  );
 }

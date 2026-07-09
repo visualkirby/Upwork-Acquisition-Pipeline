@@ -25,12 +25,15 @@ textarea { resize: vertical; min-height: 50px; }
 .milestone-num { font-size: 11px; font-weight: 700; color: #03a6a5; margin-bottom: 4px; }
 .milestone-desc { font-size: 12px; color: #333; margin-bottom: 2px; }
 .milestone-amount { font-size: 11px; color: #777; margin-bottom: 6px; }
+.milestone-row textarea { min-height: 40px; margin-top: 6px; }
 
 .entry-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 12px; }
 .entry-row:last-child { border-bottom: none; }
 .entry-date { color: #555; }
 .entry-amount { font-weight: 600; color: #05467c; }
 .recent-title { font-size: 11px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 18px; margin-bottom: 6px; }
+
+.section-divider { border-top: 1px solid #e8e8e8; margin-top: 18px; padding-top: 4px; }
 
 .btn-row { display: flex; gap: 8px; margin-top: 18px; }
 .btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -60,6 +63,26 @@ textarea { resize: vertical; min-height: 50px; }
   </select>
 
   <div id="fixed-panel" style="display:none">
+    <label>Contract Status</label>
+    <select id="fixed-contract-status" onchange="toggleEndedEarlyFields('fixed')">
+      <option value="Active">Active</option>
+      <option value="Completed">Completed</option>
+      <option value="Ended Early">Ended Early</option>
+    </select>
+    <div id="fixed-ended-early-fields" style="display:none">
+      <label class="sub">Amount Received</label>
+      <input type="number" id="fixed-ended-amount" step="0.01">
+      <label class="sub">Were funds released to you?</label>
+      <select id="fixed-ended-released">
+        <option value="N">No</option>
+        <option value="Y">Yes</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="fixed-btn-save-status" onclick="saveContractStatus('Fixed')">Update Status</button>
+    </div>
+
+    <div class="section-divider"></div>
     <div id="milestone-list"></div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btn-save-milestones" onclick="saveMilestones()">Save</button>
@@ -68,14 +91,25 @@ textarea { resize: vertical; min-height: 50px; }
 
   <div id="hourly-panel" style="display:none">
     <label>Contract Status</label>
-    <select id="contract-status">
+    <select id="hourly-contract-status" onchange="toggleEndedEarlyFields('hourly')">
       <option value="Active">Active</option>
       <option value="Completed">Completed</option>
+      <option value="Ended Early">Ended Early</option>
     </select>
+    <div id="hourly-ended-early-fields" style="display:none">
+      <label class="sub">Amount Received</label>
+      <input type="number" id="hourly-ended-amount" step="0.01">
+      <label class="sub">Were funds released to you?</label>
+      <select id="hourly-ended-released">
+        <option value="N">No</option>
+        <option value="Y">Yes</option>
+      </select>
+    </div>
     <div class="btn-row">
-      <button class="btn btn-secondary" id="btn-save-status" onclick="saveContractStatus()">Update Status</button>
+      <button class="btn btn-secondary" id="hourly-btn-save-status" onclick="saveContractStatus('Hourly')">Update Status</button>
     </div>
 
+    <div class="section-divider"></div>
     <label>Date</label>
     <input type="date" id="log-date">
     <label>Hours</label>
@@ -130,10 +164,17 @@ function loadJob() {
       if (!r.ok) { status('status', r.message, 'error'); return; }
 
       if (r.contractType === 'Fixed') {
+        document.getElementById('fixed-contract-status').value = r.status || 'Active';
+        document.getElementById('fixed-ended-amount').value = '';
+        document.getElementById('fixed-ended-released').value = 'N';
+        toggleEndedEarlyFields('fixed');
         renderMilestones(r.milestones);
         document.getElementById('fixed-panel').style.display = 'block';
       } else if (r.contractType === 'Hourly') {
-        document.getElementById('contract-status').value = r.status || 'Active';
+        document.getElementById('hourly-contract-status').value = r.status || 'Active';
+        document.getElementById('hourly-ended-amount').value = '';
+        document.getElementById('hourly-ended-released').value = 'N';
+        toggleEndedEarlyFields('hourly');
         document.getElementById('log-date').value = todayIso();
         document.getElementById('log-hours').value = '';
         document.getElementById('log-notes').value = '';
@@ -145,6 +186,11 @@ function loadJob() {
       status('status', 'Error: ' + e.message, 'error');
     })
     .progress_getJobDetails(id);
+}
+
+function toggleEndedEarlyFields(prefix) {
+  var value = document.getElementById(prefix + '-contract-status').value;
+  document.getElementById(prefix + '-ended-early-fields').style.display = value === 'Ended Early' ? 'block' : 'none';
 }
 
 function renderMilestones(milestones) {
@@ -161,7 +207,8 @@ function renderMilestones(milestones) {
       ['Pending', 'Funded', 'Delivered', 'Released'].map(function (s) {
         return '<option value="' + s + '"' + (s === m.status ? ' selected' : '') + '>' + s + '</option>';
       }).join('') +
-      '</select>';
+      '</select>' +
+      '<textarea class="ms-notes" data-num="' + m.milestoneNumber + '" placeholder="Notes">' + (m.notes || '') + '</textarea>';
     list.appendChild(div);
   });
 }
@@ -169,7 +216,9 @@ function renderMilestones(milestones) {
 function saveMilestones() {
   var id = discoveryId();
   var milestones = Array.from(document.querySelectorAll('.ms-status')).map(function (sel) {
-    return { milestoneNumber: sel.getAttribute('data-num'), status: sel.value };
+    var num = sel.getAttribute('data-num');
+    var notesEl = document.querySelector('.ms-notes[data-num="' + num + '"]');
+    return { milestoneNumber: num, status: sel.value, notes: notesEl ? notesEl.value : '' };
   });
 
   document.getElementById('btn-save-milestones').disabled = true;
@@ -192,16 +241,38 @@ function saveMilestones() {
     .progress_saveMilestones({ discoveryId: id, milestones: milestones });
 }
 
-function saveContractStatus() {
-  var id = discoveryId();
-  var newStatus = document.getElementById('contract-status').value;
+function saveContractStatus(contractType) {
+  var id     = discoveryId();
+  var prefix = contractType === 'Fixed' ? 'fixed' : 'hourly';
+  var newStatus = document.getElementById(prefix + '-contract-status').value;
+  var btn    = document.getElementById(prefix + '-btn-save-status');
 
-  document.getElementById('btn-save-status').disabled = true;
+  btn.disabled = true;
   status('status', 'Saving...', 'loading');
+
+  if (newStatus === 'Ended Early') {
+    var data = {
+      discoveryId:     id,
+      contractType:    contractType,
+      amountReceived:  document.getElementById(prefix + '-ended-amount').value,
+      released:        document.getElementById(prefix + '-ended-released').value === 'Y'
+    };
+    google.script.run
+      .withSuccessHandler(function (r) {
+        btn.disabled = false;
+        if (r.ok) { status('status', 'Contract ended early.', 'ok'); } else { status('status', r.message, 'error'); }
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        status('status', 'Error: ' + e.message, 'error');
+      })
+      .progress_endContractEarly(data);
+    return;
+  }
 
   google.script.run
     .withSuccessHandler(function (r) {
-      document.getElementById('btn-save-status').disabled = false;
+      btn.disabled = false;
       if (r.ok) {
         status('status', 'Status updated.', 'ok');
       } else {
@@ -209,10 +280,10 @@ function saveContractStatus() {
       }
     })
     .withFailureHandler(function (e) {
-      document.getElementById('btn-save-status').disabled = false;
+      btn.disabled = false;
       status('status', 'Error: ' + e.message, 'error');
     })
-    .progress_saveContractStatus({ discoveryId: id, status: newStatus });
+    .progress_saveContractStatus({ discoveryId: id, contractType: contractType, status: newStatus });
 }
 
 function renderEntries(entries) {

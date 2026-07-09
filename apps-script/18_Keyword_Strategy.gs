@@ -121,6 +121,16 @@ function GENERATE_KEYWORD_STRATEGY() {
     '- Mine Keywords scans your logged jobs for new keyword candidates\n' +
     '- Any keyword marked "Avoid" in Recommended_Action is underperforming -- set its Drop column to "Drop" and run Drop Keywords to stop searching it.'
   );
+  showTourStep_(
+    'FF_TOUR_STEP1B_MANAGE_PROJECTS_SEEN',
+    'Manage Your Portfolio Projects',
+    'The keyword strategy above pulled from your Projects sheet -- Upwork allows up to 10 portfolio projects. Use System Tools > Manage Projects anytime to add or edit one; Proposal_Generator\'s AI matching picks it up automatically, no repair needed.'
+  );
+  showTourStep_(
+    'FF_TOUR_STEP1C_DASHBOARD_SEEN',
+    'Build Your Dashboard',
+    'Once you\'ve logged a few jobs and sessions, run System Tools > Build/Refresh Dashboard for a one-page snapshot: KPI tiles, pipeline funnel, and revenue trend with charts. It only updates when you run it, not live.'
+  );
 }
 
 // Removes Keyword_Search_List rows whose Search_Query matches a keyword

@@ -11,7 +11,8 @@
  * handleEdit on their own -- the save functions below call the same
  * automation functions handleEdit uses per-column (applyMilestoneStatusEffects_,
  * applyHourlyLogAmount_, applyHourlyLogStatusEffects_ -- all in
- * 14_Edit_Trigger.gs) so nothing about the pipeline's behavior changes
+ * 14_Edit_Trigger.gs) or cross-sheet (endContractEarly_, autoCompleteContract_
+ * -- both in 03_Helpers.gs) so nothing about the pipeline's behavior changes
  * depending on which entry path was used.
  * ============================================================
  */
@@ -94,6 +95,7 @@ function progress_getJobDetails(discoveryId) {
       var msDescCol   = getCol_(msMap, ['Description']);
       var msAmountCol = getCol_(msMap, ['Amount']);
       var msStatusCol = getCol_(msMap, ['Status']);
+      var msNotesCol  = getCol_(msMap, ['Notes']);
 
       var msData = msSheet.getRange(2, 1, msSheet.getLastRow() - 1, msSheet.getLastColumn()).getValues();
       msData.forEach(function (row) {
@@ -102,7 +104,8 @@ function progress_getJobDetails(discoveryId) {
           milestoneNumber: msNumCol ? row[msNumCol - 1] : '',
           description:      msDescCol ? row[msDescCol - 1] : '',
           amount:            msAmountCol ? row[msAmountCol - 1] : 0,
-          status:            msStatusCol ? row[msStatusCol - 1] : 'Pending'
+          status:            msStatusCol ? row[msStatusCol - 1] : 'Pending',
+          notes:             msNotesCol ? row[msNotesCol - 1] : ''
         });
       });
       result.milestones.sort(function (a, b) { return Number(a.milestoneNumber) - Number(b.milestoneNumber); });
@@ -141,15 +144,48 @@ function progress_getJobDetails(discoveryId) {
   return result;
 }
 
-// Updates an Hourly contract's Status by writing it onto that contract's
-// most recent Hourly_Log row (matched by Log_Date), the same column a
-// direct sheet edit would use -- Hourly_Log's Status column is the source
-// of truth (see applyHourlyLogStatusEffects_ in 14_Edit_Trigger.gs), which
-// then propagates to Contract_Tracker, rather than this sidebar writing to
-// Contract_Tracker directly. Keeps both entry paths going through the same
-// single mechanism.
+// Updates a contract's Status -- Active/Completed only (Ended Early goes
+// through progress_endContractEarly_ instead, since it needs the
+// amount/released inputs). Branches on contract type:
+// - Hourly writes through that contract's most recent Hourly_Log row
+//   (matched by Log_Date), the same column a direct sheet edit would use --
+//   Hourly_Log's Status column is the source of truth (see
+//   applyHourlyLogStatusEffects_ in 14_Edit_Trigger.gs), which then
+//   propagates to Contract_Tracker.
+// - Fixed has no per-row indirection to route through -- Contract_Tracker
+//   itself is the natural target, so this writes there directly and reuses
+//   autoCompleteContract_ for the Completed transition (same Total_Released
+//   rollup the milestone-driven auto-complete path already produces).
 function progress_saveContractStatus(data) {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (data.contractType === 'Fixed') {
+    var contracts = ss.getSheetByName('Contract_Tracker');
+    if (!contracts || contracts.getLastRow() < 2) return { ok: false, message: 'Contract_Tracker sheet not found.' };
+
+    var ctMap       = getHeaderMap_(contracts);
+    var ctIdCol     = getCol_(ctMap, ['Discovery_ID']);
+    var ctStatusCol = getCol_(ctMap, ['Status']);
+    if (!ctIdCol || !ctStatusCol) return { ok: false, message: 'Status column not found in Contract_Tracker.' };
+
+    var ctIdValues = contracts.getRange(2, ctIdCol, contracts.getLastRow() - 1, 1).getValues();
+    var ctRow = -1;
+    for (var i = 0; i < ctIdValues.length; i++) {
+      if (String(ctIdValues[i][0]) === String(data.discoveryId)) { ctRow = i + 2; break; }
+    }
+    if (ctRow === -1) return { ok: false, message: 'Could not find that contract. Refresh and try again.' };
+
+    var ctOldStatus = contracts.getRange(ctRow, ctStatusCol).getValue();
+    if (String(ctOldStatus) === String(data.status)) return { ok: true };
+
+    if (data.status === 'Completed') {
+      autoCompleteContract_(ss, data.discoveryId);
+    } else {
+      contracts.getRange(ctRow, ctStatusCol).setValue(data.status);
+    }
+    return { ok: true };
+  }
+
   var sheet = ss.getSheetByName('Hourly_Log');
   if (!sheet || sheet.getLastRow() < 2) return { ok: false, message: 'Hourly_Log sheet not found.' };
 
@@ -181,17 +217,46 @@ function progress_saveContractStatus(data) {
   return { ok: true };
 }
 
-// Writes any milestone whose submitted status differs from the sheet's
-// current one, then runs the same side effects a direct cell edit would.
+// Ends a contract early -- works for either contract type, since
+// Contract_Tracker's Status/Total_Released are generic regardless of
+// Fixed/Hourly. Routes through the same endContractEarly_ helper
+// (03_Helpers.gs) that a direct Contract_Tracker cell edit uses via
+// handleEdit's ui.prompt() flow, so both entry paths produce identical
+// Total_Released/revenue-delta math.
+function progress_endContractEarly(data) {
+  var ss        = SpreadsheetApp.getActiveSpreadsheet();
+  var contracts = ss.getSheetByName('Contract_Tracker');
+  if (!contracts || contracts.getLastRow() < 2) return { ok: false, message: 'Contract_Tracker sheet not found.' };
+
+  var map   = getHeaderMap_(contracts);
+  var idCol = getCol_(map, ['Discovery_ID']);
+  if (!idCol) return { ok: false, message: 'Discovery_ID column not found in Contract_Tracker.' };
+
+  var idValues = contracts.getRange(2, idCol, contracts.getLastRow() - 1, 1).getValues();
+  var found = false;
+  for (var i = 0; i < idValues.length; i++) {
+    if (String(idValues[i][0]) === String(data.discoveryId)) { found = true; break; }
+  }
+  if (!found) return { ok: false, message: 'Could not find that contract. Refresh and try again.' };
+
+  endContractEarly_(ss, data.discoveryId, data.contractType, Number(data.amountReceived) || 0, !!data.released);
+
+  return { ok: true };
+}
+
+// Writes each milestone's Notes if it changed (plain field, independent of
+// status), and its Status if that changed too, running the same side
+// effects a direct cell edit would.
 function progress_saveMilestones(data) {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Milestone_Tracker');
   if (!sheet || sheet.getLastRow() < 2) return { ok: false, message: 'Milestone_Tracker sheet not found.' };
 
-  var map      = getHeaderMap_(sheet);
-  var idCol    = getCol_(map, ['Discovery_ID']);
-  var numCol   = getCol_(map, ['Milestone_Number']);
+  var map       = getHeaderMap_(sheet);
+  var idCol     = getCol_(map, ['Discovery_ID']);
+  var numCol    = getCol_(map, ['Milestone_Number']);
   var statusCol = getCol_(map, ['Status']);
+  var notesCol  = getCol_(map, ['Notes']);
   if (!idCol || !numCol || !statusCol) return { ok: false, message: 'Required columns not found in Milestone_Tracker.' };
 
   var lastRow = sheet.getLastRow();
@@ -203,12 +268,20 @@ function progress_saveMilestones(data) {
       if (String(idValues[i][0]) !== String(data.discoveryId)) continue;
       if (String(numValues[i][0]) !== String(m.milestoneNumber)) continue;
 
-      var row    = i + 2;
-      var oldVal = sheet.getRange(row, statusCol).getValue();
-      if (String(oldVal) === String(m.status)) return;
+      var row = i + 2;
 
-      sheet.getRange(row, statusCol).setValue(m.status);
-      applyMilestoneStatusEffects_(ss, sheet, row, map, oldVal, m.status);
+      if (notesCol && m.notes !== undefined) {
+        var oldNotes = sheet.getRange(row, notesCol).getValue();
+        if (String(oldNotes) !== String(m.notes)) {
+          sheet.getRange(row, notesCol).setValue(m.notes);
+        }
+      }
+
+      var oldVal = sheet.getRange(row, statusCol).getValue();
+      if (String(oldVal) !== String(m.status)) {
+        sheet.getRange(row, statusCol).setValue(m.status);
+        applyMilestoneStatusEffects_(ss, sheet, row, map, oldVal, m.status);
+      }
       return;
     }
   });

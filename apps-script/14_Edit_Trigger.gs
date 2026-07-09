@@ -416,23 +416,7 @@ function handleEdit(e) {
           var ctReleased = ctReleasedResponse.getSelectedButton() === ctUi.Button.OK &&
             String(ctReleasedResponse.getResponseText()).trim().toUpperCase() === "Y";
 
-          if (ctTotalRelCol) {
-            sheet.getRange(row, ctTotalRelCol).setValue(ctEndedAmount);
-          }
-          if (ctReleased) {
-            // ctEndedAmount is the FINAL total ever received for this contract,
-            // not a new incremental payment -- some of it may already have been
-            // recognized (a Released milestone, or logged Hourly_Log entries)
-            // before the contract ended early. Only the delta beyond what's
-            // already fed into revenue should be added here, or a milestone
-            // released earlier gets double-counted.
-            var ctAlreadyRecognized = getContractRecognizedRevenue_(ss, ctDiscoveryId, ctType);
-            var ctDelta = ctEndedAmount - ctAlreadyRecognized;
-            if (ctDelta !== 0) {
-              incrementConnectsHelperMetric_(ss, "MTD_Revenue", ctDelta);
-              incrementConnectsHelperMetric_(ss, "Monthly_Revenue", ctDelta);
-            }
-          }
+          endContractEarly_(ss, ctDiscoveryId, ctType, ctEndedAmount, ctReleased);
         }
       }
     }

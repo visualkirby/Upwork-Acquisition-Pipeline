@@ -261,6 +261,106 @@ function autoCompleteContract_(ss, discoveryId) {
   }
 }
 
+// Ends a contract early -- sets Total_Released to the final amount actually
+// received, sets Status, and (only if the funds were released) adds the
+// delta beyond what's already recognized to MTD/Monthly revenue, same
+// reasoning as autoCompleteContract_'s rollup: ctEndedAmount is the FINAL
+// total ever received for this contract, not a new incremental payment, so
+// only the amount beyond what a Released milestone/Hourly_Log entry already
+// fed into revenue should be added here. Self-contained so it can be called
+// from handleEdit's ui.prompt()-driven CONTRACT_TRACKER block or directly
+// from the Contract Progress sidebar.
+function endContractEarly_(ss, discoveryId, contractType, amountReceived, wasReleased) {
+  var contracts = ss.getSheetByName("Contract_Tracker");
+  if (!contracts || contracts.getLastRow() < 2) return;
+
+  var ctMap        = getHeaderMap_(contracts);
+  var ctIdCol      = getCol_(ctMap, ["Discovery_ID"]);
+  var ctStatusCol  = getCol_(ctMap, ["Status"]);
+  var ctTotalRelCol = getCol_(ctMap, ["Total_Released"]);
+  if (!ctIdCol || !ctStatusCol) return;
+
+  var idValues = contracts.getRange(2, ctIdCol, contracts.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < idValues.length; i++) {
+    if (String(idValues[i][0]) !== String(discoveryId)) continue;
+
+    var row = i + 2;
+    if (ctTotalRelCol) {
+      contracts.getRange(row, ctTotalRelCol).setValue(amountReceived);
+    }
+    contracts.getRange(row, ctStatusCol).setValue("Ended Early");
+
+    if (wasReleased) {
+      var alreadyRecognized = getContractRecognizedRevenue_(ss, discoveryId, contractType);
+      var delta = amountReceived - alreadyRecognized;
+      if (delta !== 0) {
+        incrementConnectsHelperMetric_(ss, "MTD_Revenue", delta);
+        incrementConnectsHelperMetric_(ss, "Monthly_Revenue", delta);
+      }
+    }
+    return;
+  }
+}
+
+// Reads the 4 pipeline sheets' relevant columns and hands them to
+// FFLib.computeFunnelStages for the actual counting -- shared by
+// ANALYZE_JOB_WORKFLOW's text report (07_Workflow_Analyzer.gs) and
+// BUILD_DASHBOARD (25_Dashboard.gs), so both always agree on the same
+// numbers instead of computing the funnel twice. Returns null if any of the
+// 4 sheets is missing.
+function readFunnelStagesFromSheets_(ss) {
+  var discSheet    = ss.getSheetByName("Job_Discovery");
+  var scoringSheet = ss.getSheetByName("Job_Scoring");
+  var pgSheet      = ss.getSheetByName("Proposal_Generator");
+  var ptSheet      = ss.getSheetByName("Proposal_Tracker");
+  if (!discSheet || !scoringSheet || !pgSheet || !ptSheet) return null;
+
+  var discMap       = getHeaderMap_(discSheet);
+  var discActionCol = getCol_(discMap, ["Discovery_Action"]);
+  var discoveryActions = (discActionCol && discSheet.getLastRow() > 1)
+    ? discSheet.getRange(2, discActionCol, discSheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; })
+    : [];
+
+  var jsMap    = getHeaderMap_(scoringSheet);
+  var jsDecCol = getCol_(jsMap, ["Final_Decision"]);
+  var scoringDecisions = (jsDecCol && scoringSheet.getLastRow() > 1)
+    ? scoringSheet.getRange(2, jsDecCol, scoringSheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; })
+    : [];
+
+  var pgMap       = getHeaderMap_(pgSheet);
+  var pgStatusCol = getCol_(pgMap, ["Proposal_Status"]);
+  var proposalStatuses = (pgStatusCol && pgSheet.getLastRow() > 1)
+    ? pgSheet.getRange(2, pgStatusCol, pgSheet.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; })
+    : [];
+
+  var ptMap      = getHeaderMap_(ptSheet);
+  var ptHiredCol = getCol_(ptMap, ["Hired"]);
+  var ptReplyCol = getCol_(ptMap, ["Viewed"]);
+  var ptIntCol   = getCol_(ptMap, ["Interview"]);
+  var hiredValues = [], interviewValues = [], viewedValues = [];
+  if (ptSheet.getLastRow() > 1) {
+    var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptSheet.getLastColumn()).getValues();
+    ptData.forEach(function (row) {
+      hiredValues.push(ptHiredCol ? row[ptHiredCol - 1] : "");
+      interviewValues.push(ptIntCol ? row[ptIntCol - 1] : "");
+      viewedValues.push(ptReplyCol ? row[ptReplyCol - 1] : "");
+    });
+  }
+
+  return FFLib.computeFunnelStages(discoveryActions, scoringDecisions, proposalStatuses, hiredValues, interviewValues, viewedValues);
+}
+
+// Wipes the Dashboard sheet's content and charts back to the blank state
+// ensurePipelineSheets_ creates it in -- shared by BUILD_DASHBOARD
+// (25_Dashboard.gs, clears right before rebuilding) and RESET_TO_AFTER_SETUP
+// (04_Reset.gs, clears as part of wiping all logged activity), so both stay
+// in sync on how a "clear" Dashboard actually looks.
+function clearDashboardSheet_(sheet) {
+  if (!sheet) return;
+  sheet.clear();
+  sheet.getCharts().forEach(function (chart) { sheet.removeChart(chart); });
+}
+
 // First-session walkthrough plumbing. Checks+marks a one-time script-property
 // flag (same FF_-prefixed convention as FF_SETUP_COMPLETE) and returns whether
 // it had ALREADY been seen before this call -- so callers can gate on "was
@@ -300,10 +400,16 @@ function parseAiFitNotes_(notes) {
 
 // ------------------------------------------------------------------------
 // GUIDED FIRST-SESSION TOUR
-// A fixed 10-step walkthrough chained across a freelancer's first job, start
+// A fixed 13-step walkthrough chained across a freelancer's first job, start
 // to finish (see trigger points in 18_Keyword_Strategy.gs,
 // 12_Session_Management.gs, 21_Job_Discovery_Sidebar.gs, 14_Edit_Trigger.gs,
-// 11_Job_Classifier.gs, 20_Contract_Setup.gs, and onSelectionChange below).
+// 11_Job_Classifier.gs, 20_Contract_Setup.gs, 13_Snapshot.gs, and
+// onSelectionChange below). Steps 1B (Manage Projects) and 1C (Dashboard)
+// fire alongside Steps 1-2 -- all four are first-run setup-awareness tips,
+// not part of the per-job logging chain, so they're grouped right after
+// Generate Keyword Strategy instead of interrupting the job/session flow.
+// Step 11 (Snapshot Month End) closes out the tour on the freelancer's own
+// monthly cadence rather than a fixed step in the job pipeline.
 // Steps 8 (Chat Import) and 9 (Contract Setup) replaced those two sidebars'
 // old standalone showWalkthroughOnce_-style info-box tips -- folded into this
 // sequential chain instead of staying separate, one-off nudges. Each step is

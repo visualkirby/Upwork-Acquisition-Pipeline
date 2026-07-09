@@ -286,7 +286,11 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
     { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop'] },
-    { name: 'Monthly_Performance', headers: ['Month','Year','Total_Sessions','Jobs_Logged','Proposals_Sent','Connects_Used','Proposal_Cost','Replies','Interviews','Hires','Reply_Rate_Pct','Interview_Rate_Pct','Hire_Rate_Pct','Revenue','Cost','ROI','Cost_per_Reply','Cost_per_Interview','Cost_per_Hire','Monthly_ROI_Dollar','Expected_Value_per_Proposal','Revenue_per_Connect','Net_Value_per_Connect'] }
+    { name: 'Monthly_Performance', headers: ['Month','Year','Total_Sessions','Jobs_Logged','Proposals_Sent','Connects_Used','Proposal_Cost','Replies','Interviews','Hires','Reply_Rate_Pct','Interview_Rate_Pct','Hire_Rate_Pct','Revenue','Cost','ROI','Cost_per_Reply','Cost_per_Interview','Cost_per_Hire','Monthly_ROI_Dollar','Expected_Value_per_Proposal','Revenue_per_Connect','Net_Value_per_Connect'] },
+    // No fixed headers -- BUILD_DASHBOARD (25_Dashboard.gs) clears and
+    // rewrites this sheet's full layout on every refresh, so a header row
+    // here would just get wiped on the first run anyway.
+    { name: 'Dashboard', headers: [] }
   ];
 
   for (var i = 0; i < defs.length; i++) {
@@ -294,7 +298,9 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     var sheet = ss.getSheetByName(def.name);
     if (!sheet) {
       sheet = ss.insertSheet(def.name);
-      sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
+      if (def.headers.length > 0) {
+        sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
+      }
 
       if (def.name === 'Job_Discovery') {
         applyJobDiscoveryFormulas_(sheet, def.headers);
@@ -356,7 +362,7 @@ function ensurePipelineSheets_(ss, starterKeywords) {
 // by this point every real sheet has been created and it's just clutter.
 function reorderPipelineTabs_(ss) {
   var order = [
-    'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
+    'Dashboard', 'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
     'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
     'Proposal_Templates', 'Keyword_Search_List', 'Keyword_Strategy',
     'Connects_Helper', 'Session_Log', 'Projects', 'Settings', 'Monthly_Performance'

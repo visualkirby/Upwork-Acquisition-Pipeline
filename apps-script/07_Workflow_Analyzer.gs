@@ -8,6 +8,12 @@
  *   Stage 3 -- Proposal_Generator: Proposal_Status distribution
  *   Stage 4 -- Proposal_Tracker: Hired / Interview / Viewed outcomes
  *
+ * The actual stage-counting happens in FFLib.computeFunnelStages (Library),
+ * via the shared readFunnelStagesFromSheets_ (03_Helpers.gs) -- this stays
+ * the same computation the Dashboard sheet's funnel section uses
+ * (25_Dashboard.gs), so the two never disagree. This function just formats
+ * the result as a text report.
+ *
  * getWorkflowAnalysis_: AI-powered per-job breakdown (used by
  *   other functions; kept here for future wiring).
  * ============================================================
@@ -16,119 +22,21 @@ function ANALYZE_JOB_WORKFLOW() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ui = SpreadsheetApp.getUi();
 
-  var discSheet    = ss.getSheetByName("Job_Discovery");
-  var scoringSheet = ss.getSheetByName("Job_Scoring");
-  var pgSheet      = ss.getSheetByName("Proposal_Generator");
-  var ptSheet      = ss.getSheetByName("Proposal_Tracker");
-
   var missing = [];
-  if (!discSheet)    missing.push("Job_Discovery");
-  if (!scoringSheet) missing.push("Job_Scoring");
-  if (!pgSheet)      missing.push("Proposal_Generator");
-  if (!ptSheet)      missing.push("Proposal_Tracker");
+  if (!ss.getSheetByName("Job_Discovery"))      missing.push("Job_Discovery");
+  if (!ss.getSheetByName("Job_Scoring"))        missing.push("Job_Scoring");
+  if (!ss.getSheetByName("Proposal_Generator")) missing.push("Proposal_Generator");
+  if (!ss.getSheetByName("Proposal_Tracker"))   missing.push("Proposal_Tracker");
   if (missing.length > 0) {
     ui.alert("Sheets not found: " + missing.join(", "));
     return;
   }
 
-  // ---- Stage 1: Job_Discovery --------------------------------
-  var discMap       = getHeaderMap_(discSheet);
-  var discActionCol = getCol_(discMap, ["Discovery_Action"]);
-
-  var discTotal     = 0;
-  var discToScoring = 0;
-  var discReview    = 0;
-  var discOther     = 0;
-
-  if (discActionCol && discSheet.getLastRow() > 1) {
-    var discData = discSheet
-      .getRange(2, discActionCol, discSheet.getLastRow() - 1, 1)
-      .getValues();
-    for (var i = 0; i < discData.length; i++) {
-      var action = String(discData[i][0]).trim();
-      if (action === "") continue;
-      discTotal++;
-      if (action === "Move to Scoring") discToScoring++;
-      else if (action === "Review Later") discReview++;
-      else discOther++;
-    }
-  }
-
-  // ---- Stage 2: Job_Scoring ----------------------------------
-  var jsMap       = getHeaderMap_(scoringSheet);
-  var jsDecCol    = getCol_(jsMap, ["Final_Decision"]);
-
-  var jsTotal  = 0;
-  var jsApply  = 0;
-  var jsHold   = 0;
-  var jsSkip   = 0;
-  var jsOther  = 0;
-
-  if (jsDecCol && scoringSheet.getLastRow() > 1) {
-    var jsData = scoringSheet
-      .getRange(2, jsDecCol, scoringSheet.getLastRow() - 1, 1)
-      .getValues();
-    for (var i = 0; i < jsData.length; i++) {
-      var dec = String(jsData[i][0]).trim();
-      if (dec === "") continue;
-      jsTotal++;
-      if      (dec === "APPLY") jsApply++;
-      else if (dec === "HOLD")  jsHold++;
-      else if (dec === "SKIP")  jsSkip++;
-      else                      jsOther++;
-    }
-  }
-
-  // ---- Stage 3: Proposal_Generator ---------------------------
-  var pgMap       = getHeaderMap_(pgSheet);
-  var pgStatusCol = getCol_(pgMap, ["Proposal_Status"]);
-
-  var pgTotal = 0;
-  var pgSent  = 0;
-  var pgSkip  = 0;
-  var pgReady = 0;
-  var pgOther = 0;
-
-  if (pgStatusCol && pgSheet.getLastRow() > 1) {
-    var pgData = pgSheet
-      .getRange(2, pgStatusCol, pgSheet.getLastRow() - 1, 1)
-      .getValues();
-    for (var i = 0; i < pgData.length; i++) {
-      var pgStatus = String(pgData[i][0]).trim();
-      if (pgStatus === "") continue;
-      pgTotal++;
-      if      (pgStatus === "Sent")  pgSent++;
-      else if (pgStatus === "Skip")  pgSkip++;
-      else if (pgStatus === "Ready") pgReady++;
-      else                           pgOther++;
-    }
-  }
-
-  // ---- Stage 4: Proposal_Tracker -----------------------------
-  var ptMap      = getHeaderMap_(ptSheet);
-  var ptHiredCol = getCol_(ptMap, ["Hired"]);
-  var ptReplyCol = getCol_(ptMap, ["Viewed"]);
-  var ptIntCol   = getCol_(ptMap, ["Interview"]);
-
-  var ptTotal    = 0;
-  var ptHiredY   = 0;
-  var ptReplyY   = 0;
-  var ptIntY     = 0;
-
-  if (ptSheet.getLastRow() > 1) {
-    var ptLastCol = ptSheet.getLastColumn();
-    var ptData    = ptSheet
-      .getRange(2, 1, ptSheet.getLastRow() - 1, ptLastCol)
-      .getValues();
-    for (var i = 0; i < ptData.length; i++) {
-      var hiredVal = ptHiredCol ? String(ptData[i][ptHiredCol - 1]).trim() : "";
-      if (hiredVal === "" && !ptHiredCol) continue;
-      ptTotal++;
-      if (ptHiredCol && hiredVal === "Y") ptHiredY++;
-      if (ptReplyCol && String(ptData[i][ptReplyCol - 1]).trim() === "Y") ptReplyY++;
-      if (ptIntCol   && String(ptData[i][ptIntCol   - 1]).trim() === "Y") ptIntY++;
-    }
-  }
+  var funnel    = readFunnelStagesFromSheets_(ss);
+  var discovery = funnel.discovery;
+  var scoring   = funnel.scoring;
+  var proposals = funnel.proposals;
+  var outcomes  = funnel.outcomes;
 
   // ---- conversion rates --------------------------------------
   function pct(num, den) {
@@ -143,53 +51,53 @@ function ANALYZE_JOB_WORKFLOW() {
     return "  " + label + pad + count + cPad + "(" + p + ")";
   }
 
-  var unreviewedNote = discReview > 0
-    ? "\n  Note: " + discReview + " Review Later jobs are an untapped pool not yet scored."
+  var unreviewedNote = discovery.reviewLater > 0
+    ? "\n  Note: " + discovery.reviewLater + " Review Later jobs are an untapped pool not yet scored."
     : "";
 
   var discrepancyNote = "";
-  if (pgSent > 0 && ptTotal > 0 && Math.abs(pgSent - ptTotal) > 2) {
+  if (proposals.sent > 0 && outcomes.total > 0 && Math.abs(proposals.sent - outcomes.total) > 2) {
     discrepancyNote =
-      "\n  Note: Proposal_Generator shows " + pgSent + " Sent; " +
-      "Proposal_Tracker has " + ptTotal + " rows. " +
-      "Difference of " + Math.abs(pgSent - ptTotal) + " may be early manual entries.";
+      "\n  Note: Proposal_Generator shows " + proposals.sent + " Sent; " +
+      "Proposal_Tracker has " + outcomes.total + " rows. " +
+      "Difference of " + Math.abs(proposals.sent - outcomes.total) + " may be early manual entries.";
   }
 
   var report =
     "PIPELINE FUNNEL ANALYSIS\n" +
     "════════════════════════════════\n\n" +
 
-    "STAGE 1 -- Discovery (" + discTotal + " jobs logged)\n" +
-    line("Move to Scoring:", discToScoring, discTotal) + "\n" +
-    line("Review Later:   ", discReview,    discTotal) + "\n" +
-    (discOther > 0 ? line("Other:          ", discOther, discTotal) + "\n" : "") +
+    "STAGE 1 -- Discovery (" + discovery.total + " jobs logged)\n" +
+    line("Move to Scoring:", discovery.toScoring,  discovery.total) + "\n" +
+    line("Review Later:   ", discovery.reviewLater, discovery.total) + "\n" +
+    (discovery.other > 0 ? line("Other:          ", discovery.other, discovery.total) + "\n" : "") +
     unreviewedNote + "\n\n" +
 
-    "STAGE 2 -- Scoring (" + jsTotal + " jobs scored)\n" +
-    line("APPLY:", jsApply, jsTotal) + "\n" +
-    line("HOLD: ", jsHold,  jsTotal) + "\n" +
-    line("SKIP: ", jsSkip,  jsTotal) + "\n" +
-    (jsOther > 0 ? line("Other:", jsOther, jsTotal) + "\n" : "") + "\n" +
+    "STAGE 2 -- Scoring (" + scoring.total + " jobs scored)\n" +
+    line("APPLY:", scoring.apply, scoring.total) + "\n" +
+    line("HOLD: ", scoring.hold,  scoring.total) + "\n" +
+    line("SKIP: ", scoring.skip,  scoring.total) + "\n" +
+    (scoring.other > 0 ? line("Other:", scoring.other, scoring.total) + "\n" : "") + "\n" +
 
-    "STAGE 3 -- Proposals (" + pgTotal + " APPLY jobs in queue)\n" +
-    line("Sent:          ", pgSent,  pgTotal) + "\n" +
-    line("Skip:          ", pgSkip,  pgTotal) + "\n" +
-    line("Ready (unsent):", pgReady, pgTotal) + "\n" +
-    (pgOther > 0 ? line("Other:         ", pgOther, pgTotal) + "\n" : "") +
+    "STAGE 3 -- Proposals (" + proposals.total + " APPLY jobs in queue)\n" +
+    line("Sent:          ", proposals.sent,  proposals.total) + "\n" +
+    line("Skip:          ", proposals.skip,  proposals.total) + "\n" +
+    line("Ready (unsent):", proposals.ready, proposals.total) + "\n" +
+    (proposals.other > 0 ? line("Other:         ", proposals.other, proposals.total) + "\n" : "") +
     discrepancyNote + "\n\n" +
 
-    "STAGE 4 -- Outcomes (" + ptTotal + " proposals tracked)\n" +
-    line("Hired (Y):      ", ptHiredY, ptTotal) + "\n" +
-    line("Interview (Y):  ", ptIntY,   ptTotal) + "\n" +
-    line("Viewed (Y):     ", ptReplyY, ptTotal) + "\n" +
-    line("Not viewed (N): ", ptTotal - ptReplyY, ptTotal) + "\n\n" +
+    "STAGE 4 -- Outcomes (" + outcomes.total + " proposals tracked)\n" +
+    line("Hired (Y):      ", outcomes.hired,     outcomes.total) + "\n" +
+    line("Interview (Y):  ", outcomes.interview, outcomes.total) + "\n" +
+    line("Viewed (Y):     ", outcomes.viewed,    outcomes.total) + "\n" +
+    line("Not viewed (N): ", outcomes.notViewed, outcomes.total) + "\n\n" +
 
     "END-TO-END CONVERSION\n" +
-    "  Discovery -> Scoring:    " + pct(discToScoring, discTotal)  + "  (" + discToScoring + " / " + discTotal  + ")\n" +
-    "  Scoring -> APPLY:        " + pct(jsApply, jsTotal)          + "  (" + jsApply       + " / " + jsTotal    + ")\n" +
-    "  APPLY -> Sent:           " + pct(pgSent, jsApply)           + "  (" + pgSent         + " / " + jsApply   + ")\n" +
-    "  Sent -> Hired:           " + pct(ptHiredY, ptTotal)         + "  (" + ptHiredY        + " / " + ptTotal   + ")\n" +
-    "  Overall (logged -> hire): " + pct(ptHiredY, discTotal)      + "  (" + ptHiredY        + " / " + discTotal + ")";
+    "  Discovery -> Scoring:    " + pct(discovery.toScoring, discovery.total) + "  (" + discovery.toScoring + " / " + discovery.total + ")\n" +
+    "  Scoring -> APPLY:        " + pct(scoring.apply, scoring.total)         + "  (" + scoring.apply       + " / " + scoring.total   + ")\n" +
+    "  APPLY -> Sent:           " + pct(proposals.sent, scoring.apply)        + "  (" + proposals.sent      + " / " + scoring.apply   + ")\n" +
+    "  Sent -> Hired:           " + pct(outcomes.hired, outcomes.total)       + "  (" + outcomes.hired      + " / " + outcomes.total  + ")\n" +
+    "  Overall (logged -> hire): " + pct(outcomes.hired, discovery.total)     + "  (" + outcomes.hired      + " / " + discovery.total + ")";
 
   ui.alert("Pipeline Funnel", report, ui.ButtonSet.OK);
 }
