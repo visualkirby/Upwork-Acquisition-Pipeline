@@ -33,6 +33,7 @@ function RESET_TO_AFTER_SETUP() {
     'Budget_Type', 'Budget', 'Hourly_Rate', 'Job_Link', 'Connects_Required',
     'AI_Fit_Notes', 'Date_Found', 'Session_ID'
   ]);
+  clearJobDiscoveryBackgrounds_(ss);
 
   // Job_Scoring's raw-data + score columns are all formulas driven off
   // Job_Discovery (applyJobScoringPullFormula_/applyJobScoringFormulas_ in
@@ -163,6 +164,19 @@ function clearAllRows_(ss, sheetName) {
   var lastRow = sh.getLastRow();
   if (lastRow <= 1) return;
   sh.getRange(2, 1, lastRow - 1, sh.getLastColumn()).clearContent();
+}
+
+// colorDuplicateJobLinks() (09_Bid_Engine.gs) paints direct cell backgrounds
+// on Job_Discovery when it finds duplicate Job_Link values. clearByHeaders_
+// above only clears cell content, not formatting, so that paint survives a
+// reset and shows up as leftover color on an otherwise blank sheet. This
+// wipes it back to the same unpainted state ensurePipelineSheets_ leaves it
+// in -- conditional formatting rules are untouched, since those are rule
+// objects on the sheet, not direct cell backgrounds.
+function clearJobDiscoveryBackgrounds_(ss) {
+  var sh = ss.getSheetByName('Job_Discovery');
+  if (!sh) return;
+  sh.getRange(2, 1, FORMULA_PREFILL_ROWS, sh.getLastColumn()).setBackground(null);
 }
 
 function setColumnValue_(ss, sheetName, headerName, value) {

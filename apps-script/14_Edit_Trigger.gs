@@ -2,16 +2,19 @@
  * ============================================================
  * 14. MAIN EDIT TRIGGER
  * Handles all sheet-specific edit automation:
- *   Job_Discovery  -- auto-timestamp, session stamp, AI_Fit_Notes, dupe check
+ *   Job_Discovery  -- auto-timestamp, session stamp, AI_Fit_Notes, dupe check,
+ *                     Keyword_Strategy Actual_Count increment
  *   Job_Scoring    -- date stamp on title entry, APPLY auto-proposal
- *   Connects_Helper -- replenishment accumulation + date stamp
+ *   Connects_Helper -- replenishment/return accumulation + date stamp, both of
+ *                      which also add back into Current_Connect_Balance
  *   Proposal_Tracker -- Viewed/Interview/Hired feed Connects_Helper's MTD_Replies/
  *                       MTD_Interviews/MTD_Hires; Interview=Y opens Chat Import,
  *                       Hired=Y opens Contract Setup. Revenue is manual/informational only.
  *   Milestone_Tracker -- Status date-stamps (Funded/Delivered/Released); Released feeds revenue
  *   Contract_Tracker -- Status=Completed rolls up Total_Released; Ended Early prompts for reconciliation
  *   Hourly_Log -- Hours_Logged computes Amount from Contract_Tracker's rate, feeds revenue by delta
- *   Proposal_Generator -- bid recommendation, proposal regen, Sent -> Proposal_Tracker
+ *   Proposal_Generator -- bid recommendation, proposal regen, Sent -> Proposal_Tracker,
+ *                         Current_Connect_Balance/Total_Connects_Used decrement
  *
  * Named handleEdit (not onEdit) so Apps Script never auto-registers it as
  * a simple trigger. Simple triggers run in a restricted authorization mode
@@ -41,10 +44,11 @@ function handleEdit(e) {
   // JOB_DISCOVERY
   // ----------------------------------------------------------
   if (sheetName === "Job_Discovery") {
-    var descColJD    = getCol_(map, ["Description"]);
-    var dateFoundCol = getCol_(map, ["Date_Found"]);
-    var linkColJD    = getCol_(map, ["Job_Link"]);
-    var sessionIdCol = getCol_(map, ["Session_ID"]);
+    var descColJD       = getCol_(map, ["Description"]);
+    var dateFoundCol    = getCol_(map, ["Date_Found"]);
+    var linkColJD       = getCol_(map, ["Job_Link"]);
+    var sessionIdCol    = getCol_(map, ["Session_ID"]);
+    var keywordColJD    = getCol_(map, ["Keyword_Search"]);
 
     if (descColJD && col === descColJD) {
       var descriptionCell = sheet.getRange(row, descColJD);
@@ -56,11 +60,20 @@ function handleEdit(e) {
           descriptionCell.setValue(cleanedText);
         }
 
+        // First-time-logged guard -- Description can be re-edited later (e.g.
+        // cleaning it up again), which would re-run this whole block. Only
+        // count the keyword once, the same moment Date_Found first gets stamped.
+        var isFirstLog = false;
         if (dateFoundCol) {
           var timestampCell = sheet.getRange(row, dateFoundCol);
           if (timestampCell.getValue() === "") {
             timestampCell.setValue(new Date());
+            isFirstLog = true;
           }
+        }
+
+        if (isFirstLog && keywordColJD) {
+          incrementKeywordStrategyActualCount_(ss, sheet.getRange(row, keywordColJD).getValue());
         }
 
         if (sessionIdCol) {
@@ -260,6 +273,8 @@ function handleEdit(e) {
               sheet.getRange(r + 2, valueCol).setValue(new Date());
             }
           }
+
+          incrementConnectsHelperMetric_(ss, "Current_Connect_Balance", Number(retVal));
         }
       }
 
@@ -285,6 +300,8 @@ function handleEdit(e) {
               sheet.getRange(m + 2, valueCol).setValue(currentTotalNum + Number(newVal));
             }
           }
+
+          incrementConnectsHelperMetric_(ss, "Current_Connect_Balance", Number(newVal));
         }
       }
     }
@@ -879,6 +896,8 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
       // path is already guarded to run once per row, so no double count.
       incrementConnectsHelperMetric_(ss, "MTD_Proposals_Sent", 1);
       incrementConnectsHelperMetric_(ss, "MTD_Connects_Used",  totalForCost);
+      incrementConnectsHelperMetric_(ss, "Total_Connects_Used", totalForCost);
+      incrementConnectsHelperMetric_(ss, "Current_Connect_Balance", -totalForCost);
       incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
     }
   } finally {

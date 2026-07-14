@@ -182,6 +182,41 @@ function purgeDroppedKeywords_(ss) {
   return purgedCount;
 }
 
+// Increments Keyword_Strategy's Actual_Count for the matching keyword by 1 --
+// called whenever a job is logged into Job_Discovery with a Keyword_Search
+// value, from both the direct-paste edit trigger (14_Edit_Trigger.gs's
+// JOB_DISCOVERY block) and the Log New Job sidebar (job_saveEntry in
+// 21_Job_Discovery_Sidebar.gs), same "sidebar inlines what the trigger does"
+// pattern used throughout that sidebar. Case/whitespace-insensitive match,
+// same style as purgeDroppedKeywords_ above. Silent no-op if the keyword
+// doesn't match any row in Keyword_Strategy (e.g. a one-off manual search
+// outside the generated strategy) -- Recommended_Action only tracks keywords
+// that are actually in the strategy.
+function incrementKeywordStrategyActualCount_(ss, keyword) {
+  if (!keyword) return;
+  var strategySheet = ss.getSheetByName("Keyword_Strategy");
+  if (!strategySheet) return;
+
+  var stratMap  = getHeaderMap_(strategySheet);
+  var kwCol     = getCol_(stratMap, ["Keyword"]);
+  var actualCol = getCol_(stratMap, ["Actual_Count"]);
+  if (!kwCol || !actualCol) return;
+
+  var lastRow = strategySheet.getLastRow();
+  if (lastRow < 2) return;
+
+  var keywordStr = String(keyword).trim().toLowerCase();
+  var kwValues    = strategySheet.getRange(2, kwCol, lastRow - 1, 1).getValues();
+
+  for (var i = 0; i < kwValues.length; i++) {
+    if (String(kwValues[i][0]).trim().toLowerCase() === keywordStr) {
+      var cell = strategySheet.getRange(i + 2, actualCol);
+      cell.setValue((Number(cell.getValue()) || 0) + 1);
+      return;
+    }
+  }
+}
+
 function DROP_KEYWORDS() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ui = SpreadsheetApp.getUi();
