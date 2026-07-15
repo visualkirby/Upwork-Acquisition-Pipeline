@@ -30,15 +30,20 @@ Final retimed script (handed to Sawandi as copy-paste text -- the doc itself was
 - Repair Formulas question: confirmed it's only needed on copies that ran the *old* Setup Wizard before Dashboard/Hourly_Log Status existed (pre-2026-07-08). Any copy running Setup Wizard fresh now gets both automatically -- no Repair Formulas needed there.
 - onEdit-dispatch-gap audit (open item from 2026-07-08): checked `14_Edit_Trigger.gs` directly. Contract_Tracker and Hourly_Log already use the safe `e.value`/`e.oldValue` delta pattern (confirmed at the milestone-status and hourly-log blocks). Job_Discovery's keyword-count increment (lines ~63-76) still uses a live-read "check if Date_Found is blank, then set" guard -- same race shape as the original bug, never rewritten. **Not fully resolved** -- Job_Discovery's guard is the one remaining unaudited spot.
 
+**Later the same day: Job_Discovery's keyword-count guard fixed, all remaining FreelanceFlow launch content drafted, and the two Infrastructure/Plan docs edited directly.** Continuing from the audit finding above:
+- `14_Edit_Trigger.gs`'s Job_Discovery block rewritten so `isFirstLog` (the keyword-count guard) uses `e.oldValue` on the edited Description cell instead of a live read of `Date_Found` -- same fix shape as Contract_Tracker/Hourly_Log, immune to the same double-count race. Committed `73feb3d` and pushed. **Not yet deployed** to the 4 live Apps Script copies (Production Master, Gumroad, Personal, Demo) -- needs Sheet ID verification against Drive first per this project's documented ID-drift history, flagged as a separate step rather than done silently.
+- `Benchline_Analytics_Infrastructure_Setup.docx` Section 4 actually edited this time (earlier note above about "no write access this session" is now stale) -- pasted the retimed Full Walkthrough script directly via python-docx, including the new 6:00-7:00 Interview Chat Logging segment and the shifted Hired and Ongoing Tracking/Performance Analysis/Close timings, plus updated the two "~9-9.5 min" duration labels to "~10-10.5 min". Backed up the original first; verified the full paragraph list afterward (not just the touched region) to rule out the silent-corruption risk python-docx edits carry.
+- `Benchline_Product_And_Job_Search_Plan_2026-06-30.docx` updated: the vague "LinkedIn launch post + Reddit posts -- launch week" bullet under Week 3 replaced with the confirmed date and full channel list, and a new "Week 3 Check-In: July 15-17, 2026" section appended at the end (same format as the existing Week 2 Check-In block) with a day-by-day Wed/Thu/Fri breakdown.
+- Today's (7/15) LinkedIn teaser and tomorrow's (7/16) Twitter/X teaser drafted and saved into `FreelanceFlow_Launch_Posts_2026-07-17.docx` as a new "Pre-Launch Teasers" section ahead of the existing launch-day content.
+- Post-launch follow-up content (LinkedIn results post, Twitter build-in-public updates, Indie Hackers milestone update) drafted as templates with `[bracketed placeholders]` for real launch numbers -- deliberately not fabricated, since no launch-day data exists yet. Saved as a new section in the same Launch Posts doc, explicitly labeled as templates not to be posted as-is.
+- The uncommitted 2026-07-15 log entry itself (this section) got committed (`3ac8644`) with the reset-formatting coloring answer folded in.
+
 ### What Is Next
 
 **FreelanceFlow launch -- immediate:**
-1. Draft today's (7/15) LinkedIn teaser post and tomorrow's (7/16) Twitter/X teaser -- only the launch-day content and the Indie Hackers intro post exist so far
-2. Post the 6 saved launch-day pieces (LinkedIn, Reddit x2, Twitter thread, Indie Hackers) on Friday 7/17 per the schedule above
-3. Draft the post-launch follow-up content (LinkedIn results/lessons-learned post, Twitter build-in-public updates, Indie Hackers milestone update) for 7/20-23 once launch-day numbers exist
-4. Update `Benchline_Product_And_Job_Search_Plan_2026-06-30.docx` with the confirmed 7/17 launch date and finalized social plan -- Sawandi flagged this doc needs updating, not yet done
-5. Paste the finalized Full Walkthrough script (Interview Chat Logging segment) into `Benchline_Analytics_Infrastructure_Setup.docx` Section 4 -- Sawandi handling this himself
-6. Job_Discovery's keyword-count guard (see audit finding above) still needs the same `e.value`/`e.oldValue` rewrite Contract_Tracker/Hourly_Log already got
+1. Post the 6 saved launch-day pieces (LinkedIn, Reddit x2, Twitter thread, Indie Hackers x2) on Friday 7/17 -- manual action for Sawandi, launch day itself, not something that can be executed ahead of time
+2. Before posting the 7/20-23 follow-up content: fill in the `[bracketed placeholders]` in the LinkedIn/Twitter/Indie Hackers templates with real launch numbers once they exist -- do not post the templates as-is
+3. Deploy the Job_Discovery keyword-count guard fix (`73feb3d`) to the 4 live Apps Script copies (Production Master, Gumroad, Personal, Demo) -- verify each Sheet ID against Drive first, per this project's ID-drift incident history, before pushing
 
 **FreelanceFlow -- other status changes from today:**
 - Connect Balance manual entry: Sawandi said to take this off the list (deprioritized, not done)
