@@ -63,12 +63,20 @@ function handleEdit(e) {
         // First-time-logged guard -- Description can be re-edited later (e.g.
         // cleaning it up again), which would re-run this whole block. Only
         // count the keyword once, the same moment Date_Found first gets stamped.
-        var isFirstLog = false;
+        //
+        // Uses e.oldValue (the snapshot for THIS specific edit to Description),
+        // not a live read of Date_Found -- two Description edits landing on the
+        // same row in quick succession queue two async executions, and by the
+        // time either runs, a live read of Date_Found could see it still blank
+        // for both (the first execution's write hasn't committed yet), double-
+        // counting the keyword. e.oldValue is fixed at dispatch time, so both
+        // executions can't agree it was blank.
+        var isFirstLog = (e.oldValue === undefined || e.oldValue === null || e.oldValue === "");
+
         if (dateFoundCol) {
           var timestampCell = sheet.getRange(row, dateFoundCol);
           if (timestampCell.getValue() === "") {
             timestampCell.setValue(new Date());
-            isFirstLog = true;
           }
         }
 
