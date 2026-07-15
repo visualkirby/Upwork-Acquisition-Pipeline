@@ -2,6 +2,55 @@
 
 ---
 
+## Session: 2026-07-15
+
+### What Was Done
+
+**Full Walkthrough demo script (`Benchline_Analytics_Infrastructure_Setup.docx`, Section 4) updated: new "Interview Chat Logging" segment added, script retimed.** Sawandi wanted a piece on the Client Chat Log sidebar inserted between the existing "Log Proposal Bid" (4:30-6:00) and "Hired and Ongoing Tracking" (6:00-7:30) segments. Reviewed `19_Chat_Import.gs` to confirm actual behavior before drafting copy -- the sidebar auto-opens when Proposal_Tracker's Interview flag flips to Y, and lets the user paste a raw copied Upwork chat transcript, which AI splits into one row per message in `Client_Chat_Log` (sender/direction/time tagged, keyed to Discovery_ID). Went through several wording rounds on the opening line; landed on "Once your proposal gets a response, the Client Chat Log sidebar opens automatically..." after Sawandi corrected an earlier draft that implied the client has to take an action to "move" the freelancer to interview status -- Upwork counts any reply as an interview automatically.
+
+Final retimed script (handed to Sawandi as copy-paste text -- the doc itself was not edited directly, no write access to it this session):
+- New: 6:00-7:00 Interview Chat Logging
+- Hired and Ongoing Tracking shifts to 7:00-8:30
+- Performance Analysis shifts to 8:30-9:30
+- Close shifts to 9:30-10:30
+
+**Launch date locked: Friday, July 17, 2026.** Beta tester copy being sent to the LinkedIn beta tester today (7/15) -- Sawandi confirmed all planned tests are complete, no further re-verification needed.
+
+**Full social launch plan drafted and saved** to `G:\My Drive\Benchline Analytics\Important_Plans\FreelanceFlow_Launch_Posts_2026-07-17.docx` (new file, built via python-docx since Write can't produce binary docx directly): LinkedIn launch post (story format, ~400 words, several wording rounds to fit brand voice.md rules -- no em dash, "you" not "we"), Reddit launch post for r/freelance + r/upwork plus a separate r/digitalnomad variant (location-independence angle instead of Upwork-mechanics angle, per Sawandi's request), an 8-tweet Twitter/X launch thread, and two Indie Hackers posts (a 7/16 building-in-public intro, a 7/17 launch-day post). Researched best-day-to-launch data via WebSearch before finalizing the schedule (Product Hunt: Tue-Thu best for raw traffic, Fri/Sat/Sun better odds for the #1 badge due to less competition; LinkedIn: Wed best day, Thu and Fri close behind, Mon/Tue worst) -- Friday 7/17 confirmed as a solid choice, not the mathematically optimal LinkedIn day but close, with no conflicting data.
+
+**Dated schedule established:**
+- Wed 7/15 (today): send beta copy, LinkedIn teaser post (not yet drafted)
+- Thu 7/16: Indie Hackers intro post (drafted), Twitter/X teaser (not yet drafted)
+- Fri 7/17 (launch day): all 6 drafted platform posts go out
+- Sat-Sun 7/18-19: engage-only, no new posts
+- Mon-Thu 7/20-23: LinkedIn follow-up post, Twitter build-in-public updates, Indie Hackers milestone update (none drafted yet)
+- Week 4: ProductHunt launch (per existing master plan)
+
+**Answered two of Sawandi's status questions by checking the actual code/docs rather than assuming:**
+- Repair Formulas question: confirmed it's only needed on copies that ran the *old* Setup Wizard before Dashboard/Hourly_Log Status existed (pre-2026-07-08). Any copy running Setup Wizard fresh now gets both automatically -- no Repair Formulas needed there.
+- onEdit-dispatch-gap audit (open item from 2026-07-08): checked `14_Edit_Trigger.gs` directly. Contract_Tracker and Hourly_Log already use the safe `e.value`/`e.oldValue` delta pattern (confirmed at the milestone-status and hourly-log blocks). Job_Discovery's keyword-count increment (lines ~63-76) still uses a live-read "check if Date_Found is blank, then set" guard -- same race shape as the original bug, never rewritten. **Not fully resolved** -- Job_Discovery's guard is the one remaining unaudited spot.
+
+### What Is Next
+
+**FreelanceFlow launch -- immediate:**
+1. Draft today's (7/15) LinkedIn teaser post and tomorrow's (7/16) Twitter/X teaser -- only the launch-day content and the Indie Hackers intro post exist so far
+2. Post the 6 saved launch-day pieces (LinkedIn, Reddit x2, Twitter thread, Indie Hackers) on Friday 7/17 per the schedule above
+3. Draft the post-launch follow-up content (LinkedIn results/lessons-learned post, Twitter build-in-public updates, Indie Hackers milestone update) for 7/20-23 once launch-day numbers exist
+4. Update `Benchline_Product_And_Job_Search_Plan_2026-06-30.docx` with the confirmed 7/17 launch date and finalized social plan -- Sawandi flagged this doc needs updating, not yet done
+5. Paste the finalized Full Walkthrough script (Interview Chat Logging segment) into `Benchline_Analytics_Infrastructure_Setup.docx` Section 4 -- Sawandi handling this himself
+6. Job_Discovery's keyword-count guard (see audit finding above) still needs the same `e.value`/`e.oldValue` rewrite Contract_Tracker/Hourly_Log already got
+
+**FreelanceFlow -- other status changes from today:**
+- Connect Balance manual entry: Sawandi said to take this off the list (deprioritized, not done)
+- `Keyword_Strategy!Actual_Count` backfill: confirmed off the list, starts from zero going forward (no action needed, informational only)
+- Dashboard tab drag to position 1 on other copies: done
+- Reset-formatting partial-column-coloring recheck: clarified -- the partial (A, H:I) coloring did not reappear. Resolved, no bug.
+- 3 FreelanceFlow demo videos: recorded
+
+**Still open, untouched today** -- Repair Formulas run on any pre-2026-07-08 already-set-up copies (see clarified scope above), Gmail send-mail-as confirmation, Pro tier Cal.com event (created, waiting on Gumroad's 30-day account-age restriction to lift), WooCommerce/Stripe (deferred to real revenue), Drive cleanup (needs Sawandi), PipelineIQ crossref
+
+---
+
 ## Session: 2026-07-14
 
 ### What Was Done
