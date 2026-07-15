@@ -2,6 +2,94 @@
 
 ---
 
+## Session: 2026-07-14
+
+### What Was Done
+
+**Found and fixed two dead-metric bugs while Sawandi was working on the demo script, plus a reset-formatting bug found while testing the fixes -- all tested on the Demo Copy and shipped to all 4 deployment targets + git:**
+
+1. **Connects Balance never moved.** `Connects_Helper!Current_Connect_Balance` was only ever written once, at Setup Wizard time (`initConnectsHelper_`, `00_Setup_Wizard.gs`) -- nothing decremented it when a proposal was sent or incremented it on replenish/return, even though it feeds `Connects_Affordability` (a live APPLY/SKIP decision formula in `Lib_JobScoringFormulas.gs`) and the Dashboard's "Connects Balance" KPI tile. Fixed by wiring 3 new `incrementConnectsHelperMetric_` calls into `14_Edit_Trigger.gs`: the Sent-status path in `handleProposalStatusChange_` (decrements by the total connect cost), and the `Connect_Returned`/`Connect_Replenishment` handlers (increment).
+
+2. **Keyword Strategy sheet was disconnected.** `Keyword_Strategy!Actual_Count` was never written by anything, so its `Recommended_Action` formula (`Complete`/`Keep Testing`/`Avoid`, built in `Lib_KeywordStrategy.gs`) was permanently dead. Added a new shared helper `incrementKeywordStrategyActualCount_(ss, keyword)` (`18_Keyword_Strategy.gs`) and wired it into both Job_Discovery entry paths: the direct-cell-paste trigger in `14_Edit_Trigger.gs` (guarded so it only fires on the first log of a row, not re-edits) and the `job_saveEntry` sidebar function (`21_Job_Discovery_Sidebar.gs`).
+
+3. **Reset left stale duplicate-flag colors behind.** Sawandi ran a demo test session on "FreelanceFlow - Demo Copy," got a duplicate-Job_Link alert he couldn't visually confirm (checked the URL list, saw no obvious dupe), ignored it, then ran `RESET_TO_AFTER_SETUP` -- and the reset sheet came back with red/teal coloring on rows that were otherwise blank. Root cause: `clearByHeaders_` (`04_Reset.gs`) only calls `.clearContent()`, which wipes values but not formatting. `colorDuplicateJobLinks()` (`09_Bid_Engine.gs`) paints literal cell backgrounds (not conditional formatting) when it finds duplicate `Job_Link` values -- its palette starts `#E63946`/`#2A9D8F`, the exact red/teal seen. That paint survives `.clearContent()` and was left over from before the reset. Fixed by adding `clearJobDiscoveryBackgrounds_(ss)` to `RESET_TO_AFTER_SETUP`, clearing backgrounds across the same `FORMULA_PREFILL_ROWS` (500-row) range the sheet's other formatting uses. **Unconfirmed loose end:** some of the colored rows in the screenshot showed color in only columns A and H:I (not full row width), which doesn't match how `colorDuplicateJobLinks` paints (always full row or fully cleared) -- suspected pre-existing manual formatting on those two column ranges, not a script bug. The blanket clear wipes it regardless, but if it reappears after a future reset, that would confirm something else is repainting it.
+
+Sawandi tested all three fixes on the Demo Copy and confirmed working before anything was committed.
+
+### Backfill discussion (open, unresolved)
+
+Sawandi wants the live sheets' historical `Current_Connect_Balance` and `Keyword_Strategy!Actual_Count` backfilled (not reset to zero/today) so the demo video doesn't look off, since both were dead before this fix. He rejected a COUNTIF-formula-then-paste-as-values approach for `Actual_Count` as inconsistent with the system's plain-value-via-script data model. He then asked Claude to just compute and write the correct values directly -- blocked by (a) no live Sheets-write tool access this session (Google Drive/Gmail/Calendar connectors are available account-wide but none can write Sheet cells) and (b) the workspace's "Calculations" standing rule (Claude verifies, doesn't assert computed results as fact). Proposed alternative: a one-time Apps Script backfill function (same precedent as `15_Formula_Fixes.gs`'s `REPAIR_FORMULAS`) that computes `Actual_Count` from real `Job_Discovery` data and writes it via script -- **Sawandi has not yet confirmed whether to build this.** `Current_Connect_Balance` has no code-path backfill option either way; it needs Sawandi to manually type in the real current Upwork balance.
+
+Also open from that thread: whether `Job_Scoring`'s `Keyword_Search` column can ever diverge from `Job_Discovery`'s (hand-edits after the fact) -- relevant to whether `Job_Discovery` alone is a safe source of truth if the backfill function gets built.
+
+**Resolved same day:** Sawandi decided against building the one-time backfill function -- `Keyword_Strategy!Actual_Count` starts from zero going forward rather than backfilling history. `Current_Connect_Balance` still needs the real current balance typed in manually (unaffected by this decision, no code path either way).
+
+### Deployment
+
+Verified all 4 deployment target Sheet IDs against Drive metadata before touching anything (title match, not trashed) -- this project has a documented history of `.clasp.json` scriptId drift causing mispushes, so stored memory IDs are never trusted on faith. All 4 checked out clean:
+- Production Master Template -- `17x3oS3OLoEhuaWzN5UbgXHNUOYeDnfG0aJjOiAR7OEM`
+- Gumroad copy -- `1u0uh5NhgrjXmEmFnsNOwGEo04tl1UbVMg2JywEp6iZs`
+- Personal copy ("Sawandi's Upwork Pipeline") -- `1oxQ5nmykAtvlbsGkkmeTfxVIwcbVK3NgbpbpRYLxAM4`
+- Loom Demo Copy ("FreelanceFlow - Demo Copy") -- `1lu7bQn2lE2_UeWxEj4_NegvCvIjlosJFRsWrV6pn-a4` (already had this session's code from Sawandi's manual test)
+
+Pushed code to Production Master, Gumroad copy, and Personal copy via the usual swap-`.clasp.json`-scriptId-and-push pattern; `.clasp.json` restored to the Production Master default afterward. Committed to git (`9fa5ffb`, 4 files: `04_Reset.gs`, `14_Edit_Trigger.gs`, `18_Keyword_Strategy.gs`, `21_Job_Discovery_Sidebar.gs`) and pushed to `visualkirby/Upwork-Acquisition-Pipeline`.
+
+### Key Notes
+
+- A separate, unrelated session-log entry for the earlier "3 things" batch (Manage Projects sidebar, Ended Early + Notes, Dashboard sheet -- code already committed as `f73d1a4`) was found sitting uncommitted in this file's working tree. Left untouched/uncommitted this session since it wasn't part of today's work -- still needs a commit.
+- Clarified for Sawandi what "Google MCP" actually is: the `mcp__claude_ai_Google_Drive__*` tools (plus Gmail and Calendar equivalents) are Anthropic's account-level connectors, managed in Settings > Connectors, not a project-local `.mcp.json` server -- that's why they don't show next to `playwright` in `/mcp`. None of them can write Sheet cells, which is why the backfill still needs a script-based approach.
+
+### What Is Next
+
+**FreelanceFlow -- immediate, from today's session:**
+1. Manually enter the real current Upwork Connect Balance into `Connects_Helper!Current_Connect_Balance` on the personal copy (and any other live copy that needs it) -- no code path, pure manual entry
+2. Commit the still-uncommitted `f73d1a4`-batch session log entry sitting in this file's working tree (separate from today's work)
+3. If the reset-formatting fix gets exercised again, confirm whether the partial column-only (A, H:I) coloring reappears -- would confirm a separate manual-formatting source rather than a script bug
+
+**FreelanceFlow -- carried forward, still open from 2026-07-08 batch (`f73d1a4`, fully deployed):**
+1. Run `System Tools > Repair Formulas` on any other already-set-up FreelanceFlow copy (not just personal) to retrofit the Dashboard sheet and Hourly_Log Status column
+2. Manually drag the Dashboard tab to position 1 on any other already-set-up copy -- new tab-order code only applies to fresh Setup Wizard runs
+3. Record the 3 FreelanceFlow demo videos in OBS Studio (Promo, Setup Walkthrough, Full Walkthrough -- scripts finalized 2026-07-09/10), upload per `Benchline_Analytics_Infrastructure_Setup.docx` Section 4's checklists
+4. Gmail "Send mail as" confirmation (Infrastructure doc Section 1.1)
+5. Before sending access to the LinkedIn beta tester: re-verify the full fresh-account signup flow end-to-end, prepare 2-3 specific feedback questions
+6. Pro tier ($127): built on Gumroad, withheld pending the 30-day account-age restriction; "FreelanceFlow Setup Call" Cal.com event type still needs creating once it lifts
+7. WooCommerce + Stripe (self-hosted Gumroad alternative) -- deferred until FreelanceFlow has real revenue
+8. Drive cleanup (no delete tool available, needs Sawandi): 10 throwaway test/verification copies flagged 2026-07-05, 4 superseded 2026-07-05-batch spreadsheets, old FreelanceFlow_Setup_Guide doc, 5 stale duplicate `Benchline_Analytics_Infrastructure_Setup` copies
+9. Cross-reference contract/chat/revenue logic against the PipelineIQ SaaS app before that build starts (see memory `project_freelanceflow_pipelineiq_crossref.md`)
+10. Not audited: whether the "Sheets sometimes never dispatches onEdit during rapid entry" root cause (found in Hourly_Log) also affects other `14_Edit_Trigger.gs` blocks (Job_Discovery, Contract_Tracker, Proposal_Generator)
+
+---
+
+## Session: 2026-07-08 (cont.)
+
+### What Was Done
+
+**Three new features built, tested on the personal copy, and shipped to all 4 deployment targets + git**, following up on "ok test done, 3 things" from Sawandi after the earlier 2026-07-08 session's reset-and-test pass succeeded:
+
+1. **Manage Projects sidebar** (`24_Projects_Sidebar.gs` + `ProjectsSidebar.html`, new "Manage Projects" menu item) -- add/edit up to 10 portfolio projects (Upwork's real cap) post-setup, no longer stuck with whatever the wizard's Step 6 captured at signup. `projects_saveProject` enforces the 10-project cap for new projects and, critically, re-calls the existing `applyProposalGeneratorFormulas_` after every save so Proposal_Generator's `Portfolio_Project` IFS() formula picks up the change immediately -- without this, new/edited projects wouldn't affect AI job-matching until a manual Repair Formulas run.
+
+2. **Ended Early + Notes added to Log Contract Progress** -- the Fixed/Milestone panel previously had no way to trigger Contract_Tracker's "Ended Early" status (only possible via direct cell edit) and no Notes field despite Milestone_Tracker having a Notes column in its schema all along. Extracted the existing two-prompt Ended Early logic out of `handleEdit` (`14_Edit_Trigger.gs`) into a shared `endContractEarly_(ss, discoveryId, contractType, amountReceived, wasReleased)` (`03_Helpers.gs`), reused by both the direct-cell-edit path and a new `progress_endContractEarly` sidebar function. Both Fixed and Hourly Contract Status dropdowns in `ContractProgressSidebar.html` gained an Ended Early option (reveals Amount Received / Released Y-N fields); `progress_saveMilestones` now writes Notes per-milestone alongside Status.
+
+3. **Dashboard sheet** (new `25_Dashboard.gs` thin-client file + `library/Lib_Dashboard.gs`, "Build/Refresh Dashboard" menu item) -- refresh-on-demand snapshot: KPI tiles pulled from Connects_Helper, a pipeline funnel bar chart, and a Monthly_Performance revenue trend line chart. `ANALYZE_JOB_WORKFLOW` (`07_Workflow_Analyzer.gs`) was refactored to call the same new `readFunnelStagesFromSheets_`/`FFLib.computeFunnelStages` computation the Dashboard uses, so the two reports never disagree. Charts are removed and rebuilt on every refresh (`sheet.getCharts().forEach(...removeChart)`) to avoid duplication on repeat runs. `buildDashboardLayoutSpec()` in the Library holds the actual layout/label knowledge, per Sawandi's explicit ask to keep that in the Library rather than the thin client. Library bumped to **v23**.
+
+**Follow-up refinements after initial confirmation:**
+- 3 new guided-tour steps: "Manage Your Portfolio Projects" and "Build Your Dashboard" fire alongside the existing early keyword-strategy tips (`18_Keyword_Strategy.gs`, `GENERATE_KEYWORD_STRATEGY`); "Keep Snapshotting Monthly" fires at the end of `SNAPSHOT_MONTH_END()` (`13_Snapshot.gs`). Tour is now 13 steps total (doc comment in `03_Helpers.gs` updated to match).
+- Dashboard now gets wiped by both Reset System depths: `RESET_TO_AFTER_SETUP` calls a new shared `clearDashboardSheet_(sheet)` helper (also used by `BUILD_DASHBOARD` itself, so both stay in sync on what "clear" looks like); `RESET_TO_BEFORE_SETUP` deletes it outright (added to its sheet-delete list + warning text).
+- `Dashboard` moved to the first position in `reorderPipelineTabs_`'s tab order (`00_Setup_Wizard.gs`) -- only takes effect on new Setup Wizard runs, so Sawandi manually dragged the tab on his own already-set-up personal copy to match.
+
+**All of it pushed to all 4 deployment targets** (Production Master, Gumroad copy, personal copy, Loom Demo Copy) via the swap-`.clasp.json`-scriptId-and-push pattern, restored to the Production Master default afterward each time. Library pushed once at v23 (no further Library version bump needed for the tour-step/reset/tab-order follow-ups -- pure client-side changes). Committed and pushed to `visualkirby/Upwork-Acquisition-Pipeline` (`f73d1a4`).
+
+### Key Notes
+- Confirmed `REPAIR_FORMULAS` (`15_Formula_Fixes.gs`) already calls `ensurePipelineSheets_(ss, [])` non-destructively -- this is the existing mechanism that backfills the new Dashboard sheet onto any already-set-up customer copy without a full wizard re-run, same pattern already used for Client_Chat_Log/Contract_Tracker/Milestone_Tracker/Hourly_Log previously.
+- Tab reordering only fires inside `wizard_initialize` (Setup Wizard), not on Repair Formulas -- worth remembering that any future tab-order change needs a manual drag on already-set-up copies (personal copy, and eventually the other 3 deployment targets if any of them have already run the wizard rather than staying pristine).
+
+### What Is Next
+- Run `System Tools > Repair Formulas` on any other already-set-up FreelanceFlow copy (not just the personal one) to retrofit the new Dashboard sheet
+- Manually drag the Dashboard tab to position 1 on any other already-set-up copy -- the new tab-order code only applies to fresh wizard runs
+- Everything else still open from earlier 2026-07-08 sessions, untouched this session: OBS demo recording, Gmail "Send mail as" confirmation, LinkedIn beta tester re-verification, Pro tier Cal.com event, WooCommerce/Stripe deferred until revenue, Drive cleanup, PipelineIQ crossref, onEdit-dispatch-gap audit
+
+---
+
 ## Session: 2026-07-08
 
 ### What Was Done
