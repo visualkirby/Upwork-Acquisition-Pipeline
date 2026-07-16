@@ -38,12 +38,13 @@ Final retimed script (handed to Sawandi as copy-paste text -- the doc itself was
 - Post-launch follow-up content (LinkedIn results post, Twitter build-in-public updates, Indie Hackers milestone update) drafted as templates with `[bracketed placeholders]` for real launch numbers -- deliberately not fabricated, since no launch-day data exists yet. Saved as a new section in the same Launch Posts doc, explicitly labeled as templates not to be posted as-is.
 - The uncommitted 2026-07-15 log entry itself (this section) got committed (`3ac8644`) with the reset-formatting coloring answer folded in.
 
+**Job_Discovery guard fix deployed to all 4 live copies.** Verified all 4 Sheet IDs against Drive first (`get_file_metadata` on each -- titles, owner, not-trashed all confirmed matching the `project_freelanceflow_production_master` memory) before pushing. Pushed via `clasp push`, swapping `apps-script/.clasp.json`'s `scriptId` between each target in turn: Production Master (the file's default target already) -> Gumroad copy -> Personal copy -> Demo copy, then restored `.clasp.json` back to the Production Master scriptId afterward so the working tree matches what's committed. All 4 pushes succeeded (34 files each).
+
 ### What Is Next
 
 **FreelanceFlow launch -- immediate:**
 1. Post the 6 saved launch-day pieces (LinkedIn, Reddit x2, Twitter thread, Indie Hackers x2) on Friday 7/17 -- manual action for Sawandi, launch day itself, not something that can be executed ahead of time
 2. Before posting the 7/20-23 follow-up content: fill in the `[bracketed placeholders]` in the LinkedIn/Twitter/Indie Hackers templates with real launch numbers once they exist -- do not post the templates as-is
-3. Deploy the Job_Discovery keyword-count guard fix (`73feb3d`) to the 4 live Apps Script copies (Production Master, Gumroad, Personal, Demo) -- verify each Sheet ID against Drive first, per this project's ID-drift incident history, before pushing
 
 **FreelanceFlow -- other status changes from today:**
 - Connect Balance manual entry: Sawandi said to take this off the list (deprioritized, not done)
