@@ -1,28 +1,77 @@
 /**
  * ============================================================
  * FreelanceFlow Library -- Wizard Formula Builders
- * Pure formula-string builders -- headers/portfolioMap in,
- * formula-string out, no SpreadsheetApp access. The thin client
- * (00_Setup_Wizard.gs's apply*_ functions at setup time, and
- * 15_Formula_Fixes.gs's REPAIR_FORMULAS() for an existing sheet)
- * calls these and writes the returned formula strings via
- * setFormula(). This is the actual "how do we build a working
- * pipeline automatically" mechanism -- the highest-value piece
- * of IP to keep out of customers' hands.
+ * Pure formula-string builders -- headers in, formula-string out,
+ * no SpreadsheetApp access. The thin client (00_Setup_Wizard.gs's
+ * apply*_ functions at setup time, and 15_Formula_Fixes.gs's
+ * REPAIR_FORMULAS() for an existing sheet) calls these and writes
+ * the returned formula strings via setFormula(). This is the actual
+ * "how do we build a working pipeline automatically" mechanism --
+ * the highest-value piece of IP to keep out of customers' hands.
  *
  * buildJobScoringFormulas moved to Lib_JobScoringFormulas.gs (the
- * full 9-score chain). buildProposalGeneratorFormulas is the other
- * entry point the client calls, so it's public (no trailing
- * underscore). buildPortfolioFormula_ and colLetter_ are only ever
- * called internally, so they keep the underscore and stay private
- * to the Library.
+ * full 9-score chain). buildProposalGeneratorFormulas and
+ * pickPortfolioProject are the other entry points the client calls,
+ * so they're public (no trailing underscore). buildToolDetectedIfsArgs_
+ * and colLetter_ are only ever called internally, so they keep the
+ * underscore and stay private to the Library.
  * ============================================================
  */
-function buildProposalGeneratorFormulas(headers, portfolioMap, primaryToolsCsv) {
+// Builds the IFS clause list for a Tool_Detected formula -- shared by
+// Job_Discovery (buildJobDiscoveryFormulas, Lib_JobDiscoveryFormulas.gs) and
+// Proposal_Generator (buildProposalGeneratorFormulas below), so the two
+// sheets can't drift into different matching behavior for the same tool
+// list again.
+//
+// Two things fixed here vs. the earlier per-sheet versions: (1) every tool
+// name is word-boundary-anchored (\b...\b), so "Excel" can't match inside
+// "excellent" and "SQL" can't match inside "MySQL"/"NoSQL" -- a real job in
+// testing ("Implementation Analyst") was wrongly tagged Excel purely because
+// its description used the word "excellent" four times; (2) Job_Title
+// clauses are listed before Description clauses, so a tool explicitly named
+// in the title outranks one only mentioned in passing in the body -- another
+// real job ("...Advanced Excel & Interactive Dashboard Expert") was wrongly
+// tagged Tableau because the description had one aside about "tools like
+// Tableau" while Excel, the actual ask, was only checked against the body
+// text and lost to Tableau's earlier position in Primary_Tools.
+//
+// A tool that only appears as part of a compound word (MySQL, PostgreSQL)
+// won't match under this stricter check unless that exact variant is also
+// listed in Primary_Tools -- deliberate, since there's no regex-only way to
+// allow "MySQL" without also reopening the "NoSQL" false-positive it's meant
+// to close. Users who want a variant tracked list it themselves (Setup
+// Wizard's Primary_Tools field has a hint for this now).
+//
+// Returns null if primaryToolsCsv has no usable tools (caller leaves
+// Tool_Detected formula-free, same as before).
+function buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv) {
+  var tools = (primaryToolsCsv || '').split(',')
+    .map(function (t) { return t.trim(); })
+    .filter(function (t) { return t; });
+  if (tools.length === 0) return null;
+
+  function regexEscape(t) {
+    return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  function quoteEscape(s) {
+    return s.replace(/"/g, '""');
+  }
+
+  function clausesFor(colL) {
+    if (!colL) return [];
+    return tools.map(function (t) {
+      var pattern = '\\b' + regexEscape(t) + '\\b';
+      return 'REGEXMATCH(LOWER(' + colL + '2),LOWER("' + quoteEscape(pattern) + '")),"' + quoteEscape(t) + '"';
+    });
+  }
+
+  return clausesFor(titleL).concat(clausesFor(descL));
+}
+
+function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
   var jobTitleIdx  = headers.indexOf('Job_Title');
   var descIdx      = headers.indexOf('Description');
   var toolDetIdx   = headers.indexOf('Tool_Detected');
-  var portfolioIdx = headers.indexOf('Portfolio_Project');
 
   var result = {};
   if (jobTitleIdx < 0 || descIdx < 0) return result;
@@ -32,62 +81,86 @@ function buildProposalGeneratorFormulas(headers, portfolioMap, primaryToolsCsv) 
 
   // Tool_Detected -- dynamic, one clause per tool the user listed in Settings.
   // Same precedent as Job_Discovery/Job_Scoring's Tool_Detected: built fresh
-  // per user instead of hardcoded to a fixed BI-tool list.
+  // per user instead of hardcoded to a fixed BI-tool list. See
+  // buildToolDetectedIfsArgs_ above for the shared title-priority,
+  // word-boundary matching logic.
   if (toolDetIdx >= 0) {
-    var tools = (primaryToolsCsv || '').split(',')
-      .map(function (t) { return t.trim(); })
-      .filter(function (t) { return t; });
-
-    if (tools.length > 0) {
-      var ifsArgs = tools.map(function (t) {
-        var safe = t.replace(/"/g, '""');
-        return 'ISNUMBER(SEARCH("' + safe.toLowerCase() + '",LOWER(' + dcL + '2))),"' + safe + '"';
-      });
+    var toolArgs = buildToolDetectedIfsArgs_(jtL, dcL, primaryToolsCsv);
+    if (toolArgs) {
       result.toolDetectedCol = toolDetIdx + 1;
       result.toolDetectedFormula =
-        '=IF(' + jtL + '2="","",IFS(' + ifsArgs.join(',') + ',TRUE,"Other"))';
+        '=IF(' + jtL + '2="","",IFS(' + toolArgs.join(',') + ',TRUE,"Other"))';
     }
   }
 
-  if (portfolioIdx >= 0) {
-    result.portfolioProjectCol     = portfolioIdx + 1;
-    result.portfolioProjectFormula = buildPortfolioFormula_(jtL, dcL, portfolioMap);
-  }
+  // Portfolio_Project is no longer built here -- a formula can only express
+  // "first matching keyword wins", and a typical portfolio's keywords overlap
+  // too much for that to mean anything (a real test found "Dashboard" listed
+  // on 5 of 7 projects, so whichever project happened to be listed first won
+  // 10 of 13 real jobs regardless of actual fit). See pickPortfolioProject
+  // below -- same inputs, but scores every project by keyword-match count
+  // and picks the best-covered one. Called from the thin client
+  // (RUN_JOB_CLASSIFICATION, 11_Job_Classifier.gs) instead of live in-sheet,
+  // since Proposal_Generator's Job_Title/Description arrive via a FILTER
+  // pull that never fires an edit event to recompute a formula against.
 
   return result;
 }
 
-
-function buildPortfolioFormula_(jobTitleLetter, descLetter, portfolioMap) {
-  var jtL = jobTitleLetter || 'B';
-  var dcL = descLetter     || 'D';
-  var map = portfolioMap   || {};
-
-  var clauses     = [];
-  var defaultName = '';
-  var pNums       = Object.keys(map).sort();
+// Scores every portfolio project by how many of its OWN keywords appear
+// (word-boundary matched, case-insensitive) in the job's title + description
+// combined, and returns the name of the best-covered project -- replaces the
+// old buildPortfolioFormula_ formula-builder, which returned the first
+// project whose first keyword happened to match. Ties keep the earlier
+// project (portfolioMap's own numeric order, i.e. the order projects were
+// entered in Settings/Projects).
+//
+// Same three fallback strings the old formula used, so callers don't need to
+// change: no portfolio projects at all, projects exist but none have
+// keywords, or (new) keywords exist but none matched this job -- the last
+// case still falls back to the first project's name, same "always attribute
+// something" default as before.
+function pickPortfolioProject(jobTitle, description, portfolioMap) {
+  var map = portfolioMap || {};
+  var pNums = Object.keys(map).map(Number).sort(function (a, b) { return a - b; });
 
   if (pNums.length === 0) {
-    return '=IF(' + jtL + '2="","","Add portfolio projects via FreelanceFlow Setup")';
+    return 'Add portfolio projects via FreelanceFlow Setup';
   }
+
+  function regexEscape(t) {
+    return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  var combined    = (String(jobTitle || '') + ' ' + String(description || '')).toLowerCase();
+  var anyKeywords = false;
+  var bestName    = '';
+  var bestCount   = -1;
 
   for (var p = 0; p < pNums.length; p++) {
     var proj = map[pNums[p]];
-    if (!proj.name) continue;
-    if (!defaultName) defaultName = proj.name;
-    var safeName = proj.name.replace(/"/g, '""');
-    for (var k = 0; k < proj.keywords.length; k++) {
-      var kw = proj.keywords[k].replace(/"/g, '""');
-      if (kw) clauses.push('ISNUMBER(SEARCH("' + kw + '",' + dcL + '2)),"' + safeName + '"');
+    if (!proj || !proj.name) continue;
+    if (!bestName) bestName = proj.name;
+
+    var count = 0;
+    (proj.keywords || []).forEach(function (kw) {
+      if (!kw) return;
+      anyKeywords = true;
+      var re = new RegExp('\\b' + regexEscape(kw) + '\\b', 'i');
+      if (re.test(combined)) count++;
+    });
+
+    if (count > bestCount) {
+      bestCount = count;
+      bestName  = proj.name;
     }
   }
 
-  if (clauses.length === 0) {
-    return '=IF(' + jtL + '2="","","Add portfolio keyword mappings in Settings sheet")';
+  if (!anyKeywords) {
+    return 'Add portfolio keyword mappings in Settings sheet';
   }
 
-  var safeDefault = (defaultName || 'Portfolio Project').replace(/"/g, '""');
-  return '=IF(' + jtL + '2="","",IFS(' + clauses.join(',') + ',TRUE,"' + safeDefault + '"))';
+  return bestName;
 }
 
 
@@ -121,11 +194,11 @@ function colLetter_(n) {
  * Proposal_Generator's raw-data columns (Job_Title, Description, Budget,
  * etc.) auto-populate from Job_Scoring wherever Final_Decision="APPLY" --
  * same FILTER-pull precedent as buildJobScoringPullFormulas, just one
- * pipeline stage further along. Tool_Detected/Portfolio_Project are excluded
- * here on purpose -- they're computed fresh in this sheet by
- * buildProposalGeneratorFormulas above, not pulled. Job_Type and the
- * template/bid fields are excluded too -- those are filled later by the
- * RUN_JOB_CLASSIFICATION / RUN_AI_PROPOSALS batch actions, not by this pull.
+ * pipeline stage further along. Tool_Detected is excluded here on purpose --
+ * it's computed fresh in this sheet by buildProposalGeneratorFormulas above,
+ * not pulled. Job_Type, Portfolio_Project, and the template/bid fields are
+ * excluded too -- those are filled later by the RUN_JOB_CLASSIFICATION /
+ * RUN_AI_PROPOSALS batch actions, not by this pull.
  * Additional_Questions is excluded too -- it flows the OPPOSITE direction
  * from everything else here (see buildDiscoveryIdLookup_ below): it's only
  * knowable at this stage (Upwork only shows a job's extra application

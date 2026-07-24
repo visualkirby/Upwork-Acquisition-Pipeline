@@ -29,6 +29,7 @@ function buildSystemMenu_() {
     .addItem('Generate Keyword Strategy', 'GENERATE_KEYWORD_STRATEGY')
     .addItem('Mine Keywords',            'MINE_KEYWORDS')
     .addItem('Drop Keywords',            'DROP_KEYWORDS')
+    .addItem('Build/Refresh Keyword Intelligence', 'BUILD_KEYWORD_INTELLIGENCE')
     .addSeparator()
     .addItem('Snapshot Month End',        'SNAPSHOT_MONTH_END')
     .addSeparator()

@@ -117,6 +117,22 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
 }
 
 
+// Proposal_Length's 3 preset values (Short/Medium/Long, set via a Settings
+// dropdown -- see applySettingsValidation_, 00_Setup_Wizard.gs). Character
+// ranges stay well under Upwork's 5,000-character proposal cap; maxTokens
+// is set generously above what each tier's word range needs so the model
+// isn't cut off mid-sentence (roughly 1.3 tokens/word for English, plus
+// headroom).
+var PROPOSAL_LENGTH_SPECS_ = {
+  'Short':  { words: '90-140',  chars: '500-800 characters',   maxTokens: 220 },
+  'Medium': { words: '140-260', chars: '800-1,500 characters', maxTokens: 380 },
+  'Long':   { words: '260-430', chars: '1,500-2,500 characters', maxTokens: 600 }
+};
+
+function resolveProposalLengthSpec_(proposalLength) {
+  return PROPOSAL_LENGTH_SPECS_[proposalLength] || PROPOSAL_LENGTH_SPECS_['Medium'];
+}
+
 function getPortfolioContext(settings) {
   var s     = settings || {};
   var name  = s['Freelancer_Name']       || 'the freelancer';
@@ -146,9 +162,10 @@ function getPortfolioContext(settings) {
 
 
 function generateAIProposal(jobTitle, description, toolDetected, jobType, template,
-                             apiKey, journeyContext, portfolioAll, proposalTone, freelancerName) {
+                             apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength) {
   if (!apiKey) return 'API key not set. Run System Tools > Setup API Key first.';
 
+  var lengthSpec     = resolveProposalLengthSpec_(proposalLength);
   var angle          = (template && template.angle)          || '';
   var credentialHint = (template && template.credentialHint) || '';
   var tone           = (template && template.tone)           || '';
@@ -166,7 +183,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     (portfolioAll ? 'FULL PORTFOLIO (for context only): ' + portfolioAll + '. ' : '') +
     'OVERALL TONE GUIDANCE: ' + (proposalTone || 'Direct') + '. ' +
     'STRICT RULES -- violating any rule makes the proposal unusable: ' +
-    '1. Under 100 words total. ' +
+    '1. Between ' + lengthSpec.words + ' words total (roughly ' + lengthSpec.chars + '). ' +
     '2. Do NOT start with Hi, Hello, or any greeting. ' +
     '3. Do NOT use bullet points or numbered lists. ' +
     '4. Do NOT list skills or tools generically. ' +
@@ -185,7 +202,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 180,
+    max_tokens: lengthSpec.maxTokens,
     temperature: 0.5
   };
 
@@ -212,9 +229,10 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
 
 
 function generateAiProposal(jobTitle, description, toolDetected, jobType, proposalCount, budget, keywordSearch,
-                             apiKey, portfolioContext, freelancerName) {
+                             apiKey, portfolioContext, freelancerName, proposalLength) {
   if (!apiKey) return 'API key not set. Run System Tools > Setup API Key.';
 
+  var lengthSpec = resolveProposalLengthSpec_(proposalLength);
   var name = freelancerName || 'the freelancer';
 
   var competitionNote = proposalCount > 30
@@ -225,7 +243,8 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
 
   var prompt =
     'You are writing an Upwork proposal for ' + name + ', a freelancer. ' +
-    'Write a complete proposal in exactly 3 short paragraphs, under 120 words total. ' +
+    'Write a complete proposal in exactly 3 paragraphs, between ' + lengthSpec.words +
+    ' words total (roughly ' + lengthSpec.chars + '). ' +
     'Rules you must follow: ' +
     'Do NOT start with Hi or the client\'s name. ' +
     'Do NOT open with I or My or a statement about the freelancer. ' +
@@ -246,7 +265,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 200,
+    max_tokens: lengthSpec.maxTokens,
     temperature: 0.7
   };
 

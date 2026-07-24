@@ -12,10 +12,10 @@
  *
  * Tool_Detected is the one formula that must be built fresh per
  * user (its IFS clauses depend on however many tools *this* user
- * listed in Primary_Tools) -- same precedent as
- * buildPortfolioFormula_ baking in that user's own portfolio
- * keywords at generation time. REPAIR_FORMULAS() re-calls this if
- * the user updates Primary_Tools later.
+ * listed in Primary_Tools) -- same precedent as pickPortfolioProject
+ * (Lib_WizardFormulas.gs) baking in that user's own portfolio
+ * keywords at call time. REPAIR_FORMULAS() re-calls this if the user
+ * updates Primary_Tools later.
  * ============================================================
  */
 function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
@@ -27,6 +27,7 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
 
   var result = {};
 
+  var titleL      = L('Job_Title');
   var descL       = L('Description');
   var kwL         = L('Keyword_Search');
   var toolDetIdx  = idx('Tool_Detected');
@@ -90,20 +91,15 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
       'REGEXMATCH(LOWER(' + descL + '2),"dashboard|report|kpi|analytics|visualization"),0.65,TRUE,0.3))';
   }
 
-  // Tool_Detected -- dynamic, one clause per tool the user listed in Settings
+  // Tool_Detected -- dynamic, one clause per tool the user listed in Settings.
+  // See buildToolDetectedIfsArgs_ (Lib_WizardFormulas.gs, shared with
+  // Proposal_Generator) for the title-priority, word-boundary matching logic.
   if (toolDetIdx >= 0 && descL) {
-    var tools = (primaryToolsCsv || '').split(',')
-      .map(function (t) { return t.trim(); })
-      .filter(function (t) { return t; });
-
-    if (tools.length > 0) {
-      var ifsArgs = tools.map(function (t) {
-        var safe = t.replace(/"/g, '""');
-        return 'REGEXMATCH(LOWER(' + descL + '2),LOWER("' + safe + '")),"' + safe + '"';
-      });
+    var toolArgs = buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv);
+    if (toolArgs) {
       result.toolDetectedCol = toolDetIdx + 1;
       result.toolDetectedFormula =
-        '=IF(' + descL + '2="","",IFS(' + ifsArgs.join(',') + ',TRUE,"Other"))';
+        '=IF(' + descL + '2="","",IFS(' + toolArgs.join(',') + ',TRUE,"Other"))';
     }
   }
 

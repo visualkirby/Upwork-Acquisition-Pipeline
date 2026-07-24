@@ -151,8 +151,9 @@ function initSettingsSheet_(ss, data, thresholds) {
     ['Reviews_Count',            data.reviewsCount        || 0],
     ['Job_Success_Score',        data.jobSuccessScore     || 0],
     ['Freelancer_Experience_Level', data.experienceLevel],
-    ['Journey_Stage',            ''],
+    ['Journey_Stage',            'New'],
     ['Proposal_Tone',            'Direct'],
+    ['Proposal_Length',          'Medium'],
     ['Scoring_Profile',          data.scoringProfile],
     ['Apply_Min_Score',          thresholds.applyMin],
     ['Apply_Min_Tool_Score',     thresholds.applyMinTool],
@@ -166,6 +167,53 @@ function initSettingsSheet_(ss, data, thresholds) {
   ];
 
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  applySettingsValidation_(sheet, rows.map(function (r) { return r[0]; }));
+}
+
+// Dropdown validation for Journey_Stage/Proposal_Tone/Proposal_Length --
+// Journey_Stage and Proposal_Tone allow a custom typed value alongside the
+// dropdown (Journey_Stage's >20-char literal-override escape hatch in
+// buildJourneyStage_, Lib_AIContext.gs; Proposal_Tone since any short tone
+// word works fine in that prompt). Proposal_Length is strict -- Short/
+// Medium/Long are the only values resolveProposalLengthSpec_
+// (Lib_ProposalGenerator.gs) knows how to map to a character-range/
+// max_tokens spec, so an unrecognized custom value would just silently
+// fall back to Medium instead of doing what the user typed.
+function applySettingsValidation_(sheet, settingNames) {
+  var rowOf = function (name) {
+    var idx = settingNames.indexOf(name);
+    return idx === -1 ? 0 : idx + 2; // +2: header row, then 0-index -> 1-index
+  };
+
+  var journeyStageRow = rowOf('Journey_Stage');
+  if (journeyStageRow) {
+    sheet.getRange(journeyStageRow, 2).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(['New', 'Growing', 'Established'], true)
+        .setAllowInvalid(true)
+        .build()
+    );
+  }
+
+  var proposalToneRow = rowOf('Proposal_Tone');
+  if (proposalToneRow) {
+    sheet.getRange(proposalToneRow, 2).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Direct', 'Warm', 'Confident'], true)
+        .setAllowInvalid(true)
+        .build()
+    );
+  }
+
+  var proposalLengthRow = rowOf('Proposal_Length');
+  if (proposalLengthRow) {
+    sheet.getRange(proposalLengthRow, 2).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Short', 'Medium', 'Long'], true)
+        .setAllowInvalid(false)
+        .build()
+    );
+  }
 }
 
 function initConnectsHelper_(ss, startBalance) {
@@ -286,6 +334,10 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
     { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop'] },
+    // No fixed headers -- BUILD_KEYWORD_INTELLIGENCE (26_Keyword_Intelligence.gs)
+    // clears and rewrites this sheet's full layout on every refresh, same
+    // pattern as Dashboard below.
+    { name: 'Keyword_Intelligence', headers: [] },
     { name: 'Monthly_Performance', headers: ['Month','Year','Total_Sessions','Jobs_Logged','Proposals_Sent','Connects_Used','Proposal_Cost','Replies','Interviews','Hires','Reply_Rate_Pct','Interview_Rate_Pct','Hire_Rate_Pct','Revenue','Cost','ROI','Cost_per_Reply','Cost_per_Interview','Cost_per_Hire','Monthly_ROI_Dollar','Expected_Value_per_Proposal','Revenue_per_Connect','Net_Value_per_Connect'] },
     // No fixed headers -- BUILD_DASHBOARD (25_Dashboard.gs) clears and
     // rewrites this sheet's full layout on every refresh, so a header row
@@ -364,7 +416,7 @@ function reorderPipelineTabs_(ss) {
   var order = [
     'Dashboard', 'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
     'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
-    'Proposal_Templates', 'Keyword_Search_List', 'Keyword_Strategy',
+    'Proposal_Templates', 'Keyword_Search_List', 'Keyword_Strategy', 'Keyword_Intelligence',
     'Connects_Helper', 'Session_Log', 'Projects', 'Settings', 'Monthly_Performance'
   ];
 
@@ -675,16 +727,15 @@ function applyKeywordStrategyValidation_(sheet, headers) {
   }
 }
 
+// Portfolio_Project is filled by RUN_JOB_CLASSIFICATION (11_Job_Classifier.gs)
+// instead of a formula here -- see pickPortfolioProject (Lib_WizardFormulas.gs)
+// for why.
 function applyProposalGeneratorFormulas_(sheet, headers) {
-  var portfolioMap = getPortfolioMapFromProjects_();
   var primaryTools = (getSettings_()['Primary_Tools'] || '');
-  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, portfolioMap, primaryTools);
+  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, primaryTools);
 
   if (formulas.toolDetectedFormula) {
     sheet.getRange(2, formulas.toolDetectedCol, FORMULA_PREFILL_ROWS, 1).setFormula(formulas.toolDetectedFormula);
-  }
-  if (formulas.portfolioProjectFormula) {
-    sheet.getRange(2, formulas.portfolioProjectCol, FORMULA_PREFILL_ROWS, 1).setFormula(formulas.portfolioProjectFormula);
   }
 }
 
@@ -851,6 +902,8 @@ function getPortfolioMapFromProjects_() {
   return portfolioMap;
 }
 
-// buildPortfolioFormula_ and colLetter_ moved to the Apps Script
-// Library (private helpers used internally by FFLib.buildProposalGeneratorFormulas
-// and FFLib.buildJobScoringFormulas) -- nothing in the client calls them directly.
+// getPortfolioMapFromProjects_'s output feeds FFLib.pickPortfolioProject
+// (called from RUN_JOB_CLASSIFICATION, 11_Job_Classifier.gs) and, before that,
+// FFLib.generateKeywordStrategy's niche/portfolio summary (18_Keyword_Strategy.gs).
+// colLetter_ moved to the Apps Script Library (private helper used internally
+// by the formula builders) -- nothing in the client calls it directly.

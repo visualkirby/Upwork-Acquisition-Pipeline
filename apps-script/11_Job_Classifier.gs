@@ -8,6 +8,12 @@
  *   Recommended_Template/Hook_Version/CTA_Version from Proposal_Templates
  *   (FFLib.pickWeightedTemplate) for any row still missing one --
  *   including rows that already had a Job_Type from an earlier run.
+ *   Also fills Portfolio_Project (FFLib.pickPortfolioProject) for any row
+ *   still missing one -- same "batch-fill what the FILTER pull can't"
+ *   reasoning as Job_Type: Job_Title/Description arrive via a live FILTER
+ *   pull, which never fires an edit event, so nothing recomputes a formula
+ *   automatically the way Job_Discovery's Tool_Detected does. This is the
+ *   catch-up pass for both.
  * RUN_AI_PROPOSALS: batch-generates AI proposals for all unfilled rows
  * ============================================================
  */
@@ -21,13 +27,14 @@ function RUN_JOB_CLASSIFICATION() {
     return;
   }
 
-  var map        = getHeaderMap_(sheet);
-  var titleCol   = getCol_(map, ["Job_Title"]);
-  var descCol    = getCol_(map, ["Description"]);
-  var jobTypeCol = getCol_(map, ["Job_Type"]);
-  var tmplCol    = getCol_(map, ["Recommended_Template"]);
-  var hookCol    = getCol_(map, ["Hook_Version"]);
-  var ctaCol     = getCol_(map, ["CTA_Version"]);
+  var map          = getHeaderMap_(sheet);
+  var titleCol     = getCol_(map, ["Job_Title"]);
+  var descCol      = getCol_(map, ["Description"]);
+  var jobTypeCol   = getCol_(map, ["Job_Type"]);
+  var tmplCol      = getCol_(map, ["Recommended_Template"]);
+  var hookCol      = getCol_(map, ["Hook_Version"]);
+  var ctaCol       = getCol_(map, ["CTA_Version"]);
+  var portfolioCol = getCol_(map, ["Portfolio_Project"]);
 
   if (!descCol || !jobTypeCol || !titleCol) {
     ui.alert("Required columns not found. Confirm Job_Title, Description, and Job_Type columns exist.");
@@ -40,15 +47,18 @@ function RUN_JOB_CLASSIFICATION() {
   var categoryList   = getJobTypeCategories_(templateRows);
   var categoryNames  = categoryList.map(function (c) { return c.name; });
   var trackerStats   = getTemplateTrackerStats_();
+  var portfolioMap   = portfolioCol ? getPortfolioMapFromProjects_() : null;
 
-  var lastRow    = getLastRealRow_(sheet);
-  var jtValues   = sheet.getRange(2, jobTypeCol, lastRow - 1, 1).getValues();
-  var tmplValues = tmplCol ? sheet.getRange(2, tmplCol, lastRow - 1, 1).getValues() : null;
+  var lastRow      = getLastRealRow_(sheet);
+  var jtValues     = sheet.getRange(2, jobTypeCol, lastRow - 1, 1).getValues();
+  var tmplValues   = tmplCol      ? sheet.getRange(2, tmplCol, lastRow - 1, 1).getValues()      : null;
+  var portfValues  = portfolioCol ? sheet.getRange(2, portfolioCol, lastRow - 1, 1).getValues() : null;
 
   var filled          = 0;
   var skipped         = 0;
   var templatesSet    = 0;
   var noTemplateMatch = 0;
+  var portfolioSet    = 0;
 
   for (var i = 0; i < jtValues.length; i++) {
     var r       = i + 2;
@@ -56,20 +66,21 @@ function RUN_JOB_CLASSIFICATION() {
     var isValid = categoryNames.indexOf(current) >= 0;
     var jobType = current;
 
-    if (!isValid) {
-      var desc  = String(sheet.getRange(r, descCol).getValue()).trim();
-      var title = String(sheet.getRange(r, titleCol).getValue()).trim();
-      if (!desc && !title) continue;
+    var desc  = String(sheet.getRange(r, descCol).getValue()).trim();
+    var title = String(sheet.getRange(r, titleCol).getValue()).trim();
 
-      jobType = FFLib.getJobType(desc, title, apiKey, categoryList);
-      sheet.getRange(r, jobTypeCol).setValue(jobType);
-      filled++;
-      if (filled % 5 === 0) Utilities.sleep(1000);
+    if (!isValid) {
+      if (desc || title) {
+        jobType = FFLib.getJobType(desc, title, apiKey, categoryList);
+        sheet.getRange(r, jobTypeCol).setValue(jobType);
+        filled++;
+        if (filled % 5 === 0) Utilities.sleep(1000);
+      }
     } else {
       skipped++;
     }
 
-    if (tmplCol && hookCol && ctaCol) {
+    if (tmplCol && hookCol && ctaCol && (desc || title)) {
       var currentTmpl = String(tmplValues[i][0]).trim();
       if (!currentTmpl) {
         var picked = FFLib.pickWeightedTemplate(jobType, templateRows, trackerStats);
@@ -83,12 +94,21 @@ function RUN_JOB_CLASSIFICATION() {
         }
       }
     }
+
+    if (portfolioCol && (desc || title)) {
+      var currentPortfolio = String(portfValues[i][0]).trim();
+      if (!currentPortfolio) {
+        sheet.getRange(r, portfolioCol).setValue(FFLib.pickPortfolioProject(title, desc, portfolioMap));
+        portfolioSet++;
+      }
+    }
   }
 
   var msg = "Done.\n\n" +
     "✓ " + filled + " rows classified.\n" +
     "-> " + skipped + " already had a Job_Type.\n" +
-    "✓ " + templatesSet + " templates assigned.";
+    "✓ " + templatesSet + " templates assigned.\n" +
+    "✓ " + portfolioSet + " Portfolio_Project values filled.";
   if (noTemplateMatch > 0) {
     msg += "\n⚠ " + noTemplateMatch + " rows had no matching template and no Is_Default row is set in Proposal_Templates.";
   }
@@ -214,6 +234,7 @@ function RUN_AI_PROPOSALS() {
   var journeyContext   = FFLib.buildJourneyStage(settings);
   var freelancerName   = settings['Freelancer_Name'] || 'the freelancer';
   var proposalTone     = settings['Proposal_Tone']   || 'Direct';
+  var proposalLength   = settings['Proposal_Length'] || 'Medium';
   var portfolioAll     = settings['Portfolio_All']   || '';
   var portfolioContext = FFLib.getPortfolioContext(settings);
 
@@ -248,7 +269,7 @@ function RUN_AI_PROPOSALS() {
       sheet.getRange(dataRow, aiPropCol).setValue("Drafting proposal...");
       var template = lookupProposalTemplate_(tmplId || "T1", hookVer || "A", ctaVer || "A");
       var result = FFLib.generateAIProposal(jobTitle, desc, tool, jobType, template,
-                                            apiKey, journeyContext, portfolioAll, proposalTone, freelancerName);
+                                            apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength);
       sheet.getRange(dataRow, aiPropCol).setValue(result);
       count++;
     }

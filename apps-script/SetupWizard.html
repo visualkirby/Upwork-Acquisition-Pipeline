@@ -45,6 +45,8 @@ textarea { resize: vertical; min-height: 70px; }
 .ai-box { background: #f0fafa; border: 1px solid #b2dfdf; border-radius: 6px; padding: 10px; margin-top: 10px; }
 .ai-box-title { font-size: 11px; font-weight: 700; color: #03a6a5; margin-bottom: 8px; }
 
+.field-hint { font-size: 11px; color: #888; margin-top: 4px; line-height: 1.4; }
+
 .divider { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
 .divider hr { flex: 1; border: none; border-top: 1px solid #e0e0e0; }
 .divider span { font-size: 11px; color: #999; white-space: nowrap; }
@@ -147,6 +149,7 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="divider"><hr><span>Review &amp; edit your setup</span><hr></div>
       <label>Primary tools (comma-separated):</label>
       <input type="text" id="primary-tools" placeholder="e.g. Power BI, Excel, SQL, Tableau">
+      <div class="field-hint">Job posts are matched on these exact words, so list specific variants separately if you want them told apart -- e.g. "SQL, MySQL, PostgreSQL" instead of just "SQL".</div>
       <label>Professional background (1 sentence for proposals):</label>
       <input type="text" id="background" placeholder="e.g. Data analyst specializing in logistics reporting; Power BI and SQL focus.">
       <label>Starter keywords (comma-separated &mdash; added to your search list):</label>

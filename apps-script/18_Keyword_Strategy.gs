@@ -13,11 +13,16 @@
  * I/O wrapper.
  * ============================================================
  */
+// Shared with ensureKeywordStrategyRow_ below, so a keyword synced in later
+// (typed directly into Keyword_Search_List, or mined) tracks against the
+// same default as the AI-generated tiers.
+var DEFAULT_KEYWORD_TARGET_COUNT_ = 15;
+
 function GENERATE_KEYWORD_STRATEGY() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ui = SpreadsheetApp.getUi();
 
-  var DEFAULT_TARGET_COUNT = 15;
+  var DEFAULT_TARGET_COUNT = DEFAULT_KEYWORD_TARGET_COUNT_;
 
   var apiKey;
   try {
@@ -93,6 +98,10 @@ function GENERATE_KEYWORD_STRATEGY() {
       if (formula.recommendedActionFormula) {
         strategySheet.getRange(writeRow, formula.recommendedActionCol).setFormula(formula.recommendedActionFormula);
       }
+
+      // Covers a keyword that already has matching Job_Discovery rows before
+      // this AI-generated strategy was built (e.g. re-running the generator).
+      if (stratActualCol) recomputeKeywordStrategyActualCount_(ss, kw);
 
       writeRow++;
     });
@@ -182,39 +191,128 @@ function purgeDroppedKeywords_(ss) {
   return purgedCount;
 }
 
-// Increments Keyword_Strategy's Actual_Count for the matching keyword by 1 --
-// called whenever a job is logged into Job_Discovery with a Keyword_Search
-// value, from both the direct-paste edit trigger (14_Edit_Trigger.gs's
-// JOB_DISCOVERY block) and the Log New Job sidebar (job_saveEntry in
-// 21_Job_Discovery_Sidebar.gs), same "sidebar inlines what the trigger does"
-// pattern used throughout that sidebar. Case/whitespace-insensitive match,
-// same style as purgeDroppedKeywords_ above. Silent no-op if the keyword
-// doesn't match any row in Keyword_Strategy (e.g. a one-off manual search
-// outside the generated strategy) -- Recommended_Action only tracks keywords
-// that are actually in the strategy.
-function incrementKeywordStrategyActualCount_(ss, keyword) {
+// Recomputes Keyword_Strategy's Actual_Count for the matching keyword by
+// counting how many Job_Discovery rows currently carry that Keyword_Search
+// value -- same case/whitespace-insensitive match, and the same counting
+// logic Keyword_Intelligence's Total_Jobs uses (26_Keyword_Intelligence.gs's
+// computeKeywordIntelligenceRow_), so the two always agree.
+//
+// Replaces an earlier running "+1 on first log" counter, which couldn't
+// recover from a resubmitted/duplicated row, a paste that misfired across
+// multiple rows, or Keyword_Search being corrected after Description was
+// already logged -- all three happened in the same real session and left
+// Actual_Count permanently wrong for two keywords. Recomputing straight from
+// Job_Discovery (the source of truth) instead of incrementing is self-healing
+// against all of those, and against Job_Discovery rows being deleted, since
+// there's nothing to "undo".
+//
+// Called whenever a Job_Discovery row's Keyword_Search takes on a value --
+// from the direct-paste edit trigger (14_Edit_Trigger.gs's JOB_DISCOVERY
+// block, both on first Description log and on any later Keyword_Search edit)
+// and from the Log New Job sidebar (job_saveEntry in
+// 21_Job_Discovery_Sidebar.gs). Silent no-op if the keyword doesn't match any
+// row in Keyword_Strategy (e.g. a one-off manual search outside the generated
+// strategy) -- Recommended_Action only tracks keywords that are actually in
+// the strategy.
+function recomputeKeywordStrategyActualCount_(ss, keyword) {
   if (!keyword) return;
   var strategySheet = ss.getSheetByName("Keyword_Strategy");
-  if (!strategySheet) return;
+  var jdSheet        = ss.getSheetByName("Job_Discovery");
+  if (!strategySheet || !jdSheet) return;
 
   var stratMap  = getHeaderMap_(strategySheet);
   var kwCol     = getCol_(stratMap, ["Keyword"]);
   var actualCol = getCol_(stratMap, ["Actual_Count"]);
   if (!kwCol || !actualCol) return;
 
-  var lastRow = strategySheet.getLastRow();
-  if (lastRow < 2) return;
+  var stratLastRow = strategySheet.getLastRow();
+  if (stratLastRow < 2) return;
 
   var keywordStr = String(keyword).trim().toLowerCase();
-  var kwValues    = strategySheet.getRange(2, kwCol, lastRow - 1, 1).getValues();
+  var kwValues    = strategySheet.getRange(2, kwCol, stratLastRow - 1, 1).getValues();
 
+  var stratRow = -1;
   for (var i = 0; i < kwValues.length; i++) {
     if (String(kwValues[i][0]).trim().toLowerCase() === keywordStr) {
-      var cell = strategySheet.getRange(i + 2, actualCol);
-      cell.setValue((Number(cell.getValue()) || 0) + 1);
-      return;
+      stratRow = i + 2;
+      break;
     }
   }
+  if (stratRow === -1) return;
+
+  var jdMap   = getHeaderMap_(jdSheet);
+  var jdKwCol = getCol_(jdMap, ["Keyword_Search"]);
+  if (!jdKwCol) return;
+
+  var jdLastRow = jdSheet.getLastRow();
+  var count = 0;
+  if (jdLastRow >= 2) {
+    var jdValues = jdSheet.getRange(2, jdKwCol, jdLastRow - 1, 1).getValues();
+    for (var j = 0; j < jdValues.length; j++) {
+      if (String(jdValues[j][0]).trim().toLowerCase() === keywordStr) count++;
+    }
+  }
+
+  strategySheet.getRange(stratRow, actualCol).setValue(count);
+}
+
+// Ensures a Keyword_Strategy row exists for the given keyword text, creating
+// one (Actual_Count recomputed from Job_Discovery, Target_Count
+// DEFAULT_KEYWORD_TARGET_COUNT_, the same Recommended_Action formula
+// GENERATE_KEYWORD_STRATEGY writes) if no match is found. Idempotent -- safe
+// to call on every edit or a full backfill pass without duplicating rows,
+// since it checks for an existing match first. Case/whitespace-insensitive,
+// same matching style as recomputeKeywordStrategyActualCount_ above.
+//
+// Called from 14_Edit_Trigger.gs's KEYWORD_SEARCH_LIST block (fires once
+// Search_Query is filled in, whichever way it got there -- typed directly,
+// mined, or otherwise -- Keyword_Search_List has no single "how it got
+// added" gate, so this doesn't assume one either) and from REPAIR_FORMULAS()
+// (15_Formula_Fixes.gs) to backfill rows that predate this sync. Returns
+// true if a new row was created, false if a match already existed or the
+// keyword/sheet was invalid -- callers use this to report an accurate
+// backfill count.
+function ensureKeywordStrategyRow_(ss, keyword) {
+  if (!keyword) return false;
+  var strategySheet = ss.getSheetByName("Keyword_Strategy");
+  if (!strategySheet) return false;
+
+  var stratMap = getHeaderMap_(strategySheet);
+  var kwCol    = getCol_(stratMap, ["Keyword"]);
+  if (!kwCol) return false;
+
+  var keywordStr = String(keyword).trim().toLowerCase();
+  if (!keywordStr) return false;
+
+  var lastRow = strategySheet.getLastRow();
+  if (lastRow >= 2) {
+    var kwValues = strategySheet.getRange(2, kwCol, lastRow - 1, 1).getValues();
+    for (var i = 0; i < kwValues.length; i++) {
+      if (String(kwValues[i][0]).trim().toLowerCase() === keywordStr) return false;
+    }
+  }
+
+  var actualCol    = getCol_(stratMap, ["Actual_Count"]);
+  var targetCol    = getCol_(stratMap, ["Target_Count"]);
+  var notesCol     = getCol_(stratMap, ["Notes"]);
+  var stratHeaders = strategySheet.getRange(1, 1, 1, strategySheet.getLastColumn()).getValues()[0];
+
+  var writeRow = getLastRealRow_(strategySheet) + 1;
+  strategySheet.getRange(writeRow, kwCol).setValue(keyword);
+  if (actualCol) strategySheet.getRange(writeRow, actualCol).setValue(0);
+  if (targetCol) strategySheet.getRange(writeRow, targetCol).setValue(DEFAULT_KEYWORD_TARGET_COUNT_);
+  if (notesCol)  strategySheet.getRange(writeRow, notesCol).setValue("Synced from Keyword_Search_List");
+
+  var formula = FFLib.buildKeywordStrategyFormula(stratHeaders, writeRow);
+  if (formula.recommendedActionFormula) {
+    strategySheet.getRange(writeRow, formula.recommendedActionCol).setFormula(formula.recommendedActionFormula);
+  }
+
+  // Covers a keyword that already has matching Job_Discovery rows before its
+  // Keyword_Strategy row existed (e.g. mined from an already-logged job).
+  if (actualCol) recomputeKeywordStrategyActualCount_(ss, keyword);
+
+  return true;
 }
 
 function DROP_KEYWORDS() {

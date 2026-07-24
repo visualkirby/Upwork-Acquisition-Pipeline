@@ -3,7 +3,11 @@
  * 14. MAIN EDIT TRIGGER
  * Handles all sheet-specific edit automation:
  *   Job_Discovery  -- auto-timestamp, session stamp, AI_Fit_Notes, dupe check,
- *                     Keyword_Strategy Actual_Count increment
+ *                     Keyword_Strategy Actual_Count recompute
+ *   Keyword_Search_List -- ensures a matching Keyword_Strategy row exists
+ *                     once Search_Query is filled in, so Actual_Count
+ *                     tracking picks up any keyword added there, however
+ *                     it got added
  *   Job_Scoring    -- date stamp on title entry, APPLY auto-proposal
  *   Connects_Helper -- replenishment/return accumulation + date stamp, both of
  *                      which also add back into Current_Connect_Balance
@@ -81,7 +85,7 @@ function handleEdit(e) {
         }
 
         if (isFirstLog && keywordColJD) {
-          incrementKeywordStrategyActualCount_(ss, sheet.getRange(row, keywordColJD).getValue());
+          recomputeKeywordStrategyActualCount_(ss, sheet.getRange(row, keywordColJD).getValue());
         }
 
         if (sessionIdCol) {
@@ -145,6 +149,18 @@ function handleEdit(e) {
       }
 
       colorDuplicateJobLinks();
+    }
+
+    // Keyword_Search corrected after the fact (e.g. the wrong keyword was
+    // typed before Description was pasted, then fixed) -- recompute both the
+    // old and new keyword's Actual_Count so the correction actually sticks,
+    // instead of leaving the old (wrong) keyword permanently over-counted
+    // and the new (right) one permanently under-counted.
+    if (keywordColJD && col === keywordColJD) {
+      var oldKeywordJD = e.oldValue;
+      var newKeywordJD = sheet.getRange(row, keywordColJD).getValue();
+      if (oldKeywordJD) recomputeKeywordStrategyActualCount_(ss, oldKeywordJD);
+      if (newKeywordJD) recomputeKeywordStrategyActualCount_(ss, newKeywordJD);
     }
 
     return;
@@ -234,10 +250,11 @@ function handleEdit(e) {
                     var autoSettings        = getSettings_();
                     var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
                     var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
+                    var autoProposalLength   = autoSettings['Proposal_Length'] || 'Medium';
                     aiProposalText = FFLib.generateAiProposal(
                       aiJobTitle, aiDescription, aiTool,
                       aiJobType, aiProposalCount, aiBudget, aiKeyword,
-                      autoApiKey, autoPortfolioContext, autoFreelancerName
+                      autoApiKey, autoPortfolioContext, autoFreelancerName, autoProposalLength
                     );
                   } catch (err) {
                     aiProposalText = err.message;
@@ -499,6 +516,35 @@ function handleEdit(e) {
   }
 
   // ----------------------------------------------------------
+  // KEYWORD_SEARCH_LIST
+  // Whenever Search_Query gets a value, ensures a matching Keyword_Strategy
+  // row exists so Actual_Count tracking picks it up -- Keyword_Search_List
+  // has no single gate on how a row gets added (typed directly, mined,
+  // whatever), so this doesn't assume one either; it just reacts to
+  // Search_Query having a value. ensureKeywordStrategyRow_
+  // (18_Keyword_Strategy.gs) is idempotent, so this loops every row in
+  // e.range rather than gating on a single column match -- same multi-cell-
+  // paste reasoning as Hourly_Log above: a fast paste reports col as the
+  // range's top-left column, not necessarily Search_Query, so a single-cell
+  // check would silently miss pasted rows.
+  // ----------------------------------------------------------
+  if (sheetName === "Keyword_Search_List") {
+    var slQueryCol = getCol_(map, ["Search_Query"]);
+    if (slQueryCol) {
+      var slEditStartRow = e.range.getRow();
+      var slEditNumRows  = e.range.getNumRows();
+      for (var slRow = slEditStartRow; slRow < slEditStartRow + slEditNumRows; slRow++) {
+        if (slRow <= 1) continue;
+        var slQueryVal = sheet.getRange(slRow, slQueryCol).getValue();
+        if (slQueryVal !== "" && slQueryVal !== null) {
+          ensureKeywordStrategyRow_(ss, slQueryVal);
+        }
+      }
+    }
+    return;
+  }
+
+  // ----------------------------------------------------------
   // PROPOSAL_GENERATOR
   // Per-behavior logic lives in computeBidRecommendation_/applyBoostConnects_/
   // generateAdditionalAnswers_/handleProposalStatusChange_ below (not inlined
@@ -649,9 +695,10 @@ function applyBoostConnects_(ss, sheet, row, map) {
     var boostFreelancerName = boostSettings['Freelancer_Name'] || 'the freelancer';
     var boostProposalTone   = boostSettings['Proposal_Tone']   || 'Direct';
     var boostPortfolioAll   = boostSettings['Portfolio_All']   || '';
+    var boostProposalLength = boostSettings['Proposal_Length'] || 'Medium';
     aiProposal = FFLib.generateAIProposal(
       pgTitle, pgDesc, pgTool, pgJobType, boostTemplate,
-      boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName
+      boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName, boostProposalLength
     );
   } catch (err) {
     aiProposal = err.message;

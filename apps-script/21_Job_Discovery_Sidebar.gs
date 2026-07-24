@@ -65,7 +65,7 @@ function job_saveEntry(data) {
   setCellValue_(sheet, row, map, ['Client_Name', 'Client Name'], data.clientName);
   setCellValue_(sheet, row, map, ['Job_Link'], data.jobLink);
   setCellValue_(sheet, row, map, ['Keyword_Search'], data.keywordSearch);
-  incrementKeywordStrategyActualCount_(ss, data.keywordSearch);
+  recomputeKeywordStrategyActualCount_(ss, data.keywordSearch);
   setCellValue_(sheet, row, map, ['Experience_Level'], data.experienceLevel);
   setCellValue_(sheet, row, map, ['Proposal_Count'], data.proposalCount);
   setCellValue_(sheet, row, map, ['Budget_Type'], data.budgetType);

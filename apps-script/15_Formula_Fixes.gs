@@ -40,6 +40,7 @@ function REPAIR_FORMULAS() {
   var ctSheet = ss.getSheetByName('Contract_Tracker');
   var msSheet = ss.getSheetByName('Milestone_Tracker');
   var hlSheet = ss.getSheetByName('Hourly_Log');
+  var settingsSheet = ss.getSheetByName('Settings');
 
   if (!jdSheet || !jsSheet || !pgSheet) {
     ui.alert('Missing sheet. Confirm Job_Discovery, Job_Scoring, and Proposal_Generator all exist.');
@@ -111,10 +112,9 @@ function REPAIR_FORMULAS() {
     applyProposalGeneratorValidation_(pgSheet, pgHeaders);
     var pgMap = getHeaderMap_(pgSheet);
     copyRowDown_(pgSheet, [
-      getCol_(pgMap, ['Tool_Detected']),
-      getCol_(pgMap, ['Portfolio_Project'])
+      getCol_(pgMap, ['Tool_Detected'])
     ]);
-    repaired.push('Proposal_Generator (Job_Scoring pull, Tool_Detected, Portfolio_Project)');
+    repaired.push('Proposal_Generator (Job_Scoring pull, Tool_Detected) -- run System Tools > Run Job Classification afterward to (re)fill Portfolio_Project, which is script-computed now instead of a formula');
   }
 
   // Proposal_Tracker/Contract_Tracker/Milestone_Tracker only need row 1 --
@@ -145,6 +145,100 @@ function REPAIR_FORMULAS() {
     repaired.push('Hourly_Log (Amount/Hours_Logged number formats, Status dropdown)');
   }
 
+  // Backfills any Keyword_Search_List row (however it was added) that
+  // predates the KEYWORD_SEARCH_LIST edit-trigger sync and never got a
+  // matching Keyword_Strategy row -- see ensureKeywordStrategyRow_
+  // (18_Keyword_Strategy.gs) and the KEYWORD_SEARCH_LIST block in
+  // 14_Edit_Trigger.gs for the ongoing (post-repair) sync.
+  var klSheet = ss.getSheetByName('Keyword_Search_List');
+  if (klSheet && klSheet.getLastRow() >= 2) {
+    var klMap      = getHeaderMap_(klSheet);
+    var klQueryCol = getCol_(klMap, ['Search_Query']);
+    if (klQueryCol) {
+      var klValues = klSheet.getRange(2, klQueryCol, klSheet.getLastRow() - 1, 1).getValues();
+      var klCreated = 0;
+      klValues.forEach(function (row) {
+        var q = row[0];
+        if (q !== '' && q !== null && ensureKeywordStrategyRow_(ss, q)) {
+          klCreated++;
+        }
+      });
+      if (klCreated > 0) {
+        repaired.push('Keyword_Strategy (backfilled ' + klCreated + ' missing tracking row' + (klCreated === 1 ? '' : 's') + ' from Keyword_Search_List -- Actual_Count computed from any matching jobs already in Job_Discovery)');
+      }
+    }
+  }
+
+  // Re-syncs every EXISTING Keyword_Strategy row's Actual_Count against
+  // Job_Discovery (recomputeKeywordStrategyActualCount_, 18_Keyword_Strategy.gs).
+  // Covers rows that drifted under the old "+1 on first log" counter (a
+  // resubmitted job, a misfired multi-row paste, or Keyword_Search corrected
+  // after the fact could all leave Actual_Count wrong) -- this is the
+  // one-time "pull" that re-syncs them after updating to the recompute-based
+  // Library version.
+  var stratSheet = ss.getSheetByName('Keyword_Strategy');
+  if (stratSheet && stratSheet.getLastRow() >= 2) {
+    var stratMap2  = getHeaderMap_(stratSheet);
+    var stratKwCol2 = getCol_(stratMap2, ['Keyword']);
+    if (stratKwCol2) {
+      var stratKwValues = stratSheet.getRange(2, stratKwCol2, stratSheet.getLastRow() - 1, 1).getValues();
+      var stratResynced = 0;
+      stratKwValues.forEach(function (row) {
+        var kw = row[0];
+        if (kw !== '' && kw !== null) {
+          recomputeKeywordStrategyActualCount_(ss, kw);
+          stratResynced++;
+        }
+      });
+      if (stratResynced > 0) {
+        repaired.push('Keyword_Strategy (re-synced Actual_Count for ' + stratResynced + ' keyword' + (stratResynced === 1 ? '' : 's') + ' against Job_Discovery)');
+      }
+    }
+  }
+
+  // Backfills a missing Proposal_Length setting (added after Proposal_Tone/
+  // Journey_Stage already existed on some copies) and (re)applies the
+  // Journey_Stage/Proposal_Tone/Proposal_Length dropdowns. Proposal_Length
+  // belongs immediately after Proposal_Tone (matches initSettingsSheet_'s
+  // row order for a fresh setup) -- self-healing on every run, whether the
+  // row is missing entirely or already sitting somewhere else (e.g.
+  // appended at the end by an earlier version of this repair step). Its
+  // existing value, if any, is preserved when it gets repositioned.
+  if (settingsSheet && settingsSheet.getLastRow() >= 2) {
+    var settingsMap = getHeaderMap_(settingsSheet);
+    var settingCol  = getCol_(settingsMap, ['Setting']);
+    var valueCol    = getCol_(settingsMap, ['Value']);
+    if (settingCol && valueCol) {
+      var settingNames = settingsSheet
+        .getRange(2, settingCol, settingsSheet.getLastRow() - 1, 1)
+        .getValues()
+        .map(function (row) { return String(row[0]).trim(); });
+
+      var toneIdx   = settingNames.indexOf('Proposal_Tone');
+      var lengthIdx = settingNames.indexOf('Proposal_Length');
+
+      if (toneIdx !== -1 && lengthIdx !== toneIdx + 1) {
+        var existingValue = 'Medium';
+        if (lengthIdx !== -1) {
+          existingValue = settingsSheet.getRange(lengthIdx + 2, valueCol).getValue() || 'Medium';
+          settingsSheet.deleteRow(lengthIdx + 2);
+          settingNames.splice(lengthIdx, 1);
+          if (lengthIdx < toneIdx) toneIdx--;
+        }
+
+        var toneRow = toneIdx + 2;
+        settingsSheet.insertRowAfter(toneRow);
+        settingsSheet.getRange(toneRow + 1, settingCol).setValue('Proposal_Length');
+        settingsSheet.getRange(toneRow + 1, valueCol).setValue(existingValue);
+        settingNames.splice(toneIdx + 1, 0, 'Proposal_Length');
+        repaired.push('Settings (Proposal_Length positioned right after Proposal_Tone, row ' + (toneRow + 1) + ')');
+      }
+
+      applySettingsValidation_(settingsSheet, settingNames);
+      repaired.push('Settings (Journey_Stage/Proposal_Tone/Proposal_Length dropdowns)');
+    }
+  }
+
   // Additional_Questions flows backwards (Proposal_Generator -> Job_Scoring
   // -> Job_Discovery) -- read fresh headers unconditionally since this only
   // needs row 1 to exist, not any data rows, in either direction.
@@ -161,6 +255,17 @@ function REPAIR_FORMULAS() {
   // randomly get overwritten by that simple trigger's permissions error.
   registerEditTrigger_();
   repaired.push('Edit trigger (re-registered to handleEdit, removes stale onEdit simple-trigger conflict)');
+
+  // ensurePipelineSheets_ above only creates sheets that don't exist yet --
+  // a new one lands appended at the end regardless of where reorderPipelineTabs_'s
+  // order list says it belongs, since that function is otherwise only called
+  // once, during the Setup Wizard's initial run. Re-running it here fixes
+  // tab position for any sheet a template update added after this copy was
+  // already set up (Client_Chat_Log/Contract_Tracker/Milestone_Tracker
+  // needed this before Keyword_Intelligence did) -- safe to call anytime,
+  // it only repositions sheets that already exist and no-ops on ones that
+  // don't (see its own `if (sheet)` guard).
+  reorderPipelineTabs_(ss);
 
   if (repaired.length === 0) {
     ui.alert('No data rows found to repair yet -- formulas will be set correctly as soon as row 2 is filled in.');
