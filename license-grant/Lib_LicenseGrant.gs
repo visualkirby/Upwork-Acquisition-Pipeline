@@ -6,6 +6,12 @@
  *          On a refund (same Ping resource, `refunded: true`): revokes the buyer's Editor
  *          access on their existing copy (the file itself is kept, not deleted, for
  *          audit/record purposes) and logs the revocation.
+ *
+ * WooCommerce sales are handled by a separate standalone project
+ * (FreelanceFlow WooCommerce Webhook), not this one -- kept apart deliberately so a
+ * public webhook endpoint change for one sales channel can never touch the other's
+ * config. Both write to the same Grants_Log spreadsheet (see the Source column).
+ *
  * Reads:   Script Properties (config only, no sheet reads)
  * Writes:  Grants_Log spreadsheet (one row per webhook call, success/failure/revoked)
  *
@@ -74,13 +80,29 @@ function doPost(e) {
 
   const isRefund = params.refunded === 'true' || params.refunded === true;
   if (isRefund) {
-    return handleRefund_(buyerEmail, permalink);
+    return handleRefund_(buyerEmail, permalink, 'Gumroad');
   }
 
-  if (alreadyGranted_(buyerEmail, permalink)) {
+  return grantAccess_(buyerEmail, permalink, 'Gumroad');
+}
+
+function buildFailureRow_(params, note) {
+  return {
+    email: params.email || '',
+    tier: params.product_permalink || params.permalink || '',
+    timestamp: new Date(),
+    copyUrl: '',
+    status: note,
+    source: 'Gumroad'
+  };
+}
+
+function grantAccess_(buyerEmail, tier, source) {
+  if (alreadyGranted_(buyerEmail, tier)) {
     return ContentService.createTextOutput('skipped: already granted');
   }
 
+  const props = PropertiesService.getScriptProperties();
   try {
     const masterId = props.getProperty('MASTER_TEMPLATE_ID');
     const folderId = props.getProperty('SOLD_COPIES_FOLDER_ID');
@@ -91,21 +113,14 @@ function doPost(e) {
     copy.addEditor(buyerEmail);
 
     logGrant_({
-      email: buyerEmail,
-      tier: permalink,
-      timestamp: new Date(),
-      copyUrl: copy.getUrl(),
-      status: 'success'
+      email: buyerEmail, tier: tier, timestamp: new Date(),
+      copyUrl: copy.getUrl(), status: 'success', source: source
     });
-
     return ContentService.createTextOutput('granted');
   } catch (err) {
     logGrant_({
-      email: buyerEmail,
-      tier: permalink,
-      timestamp: new Date(),
-      copyUrl: '',
-      status: 'failed: ' + err.message
+      email: buyerEmail, tier: tier, timestamp: new Date(),
+      copyUrl: '', status: 'failed: ' + err.message, source: source
     });
     return ContentService.createTextOutput('failed: ' + err.message);
   }
@@ -116,16 +131,13 @@ function doPost(e) {
  * kept (not deleted) so there's still a record if the refund is later reversed/disputed.
  * Idempotent: a webhook retry after a successful revoke is a no-op, not a repeat attempt.
  */
-function handleRefund_(buyerEmail, permalink) {
-  const grant = findGrantForRevoke_(buyerEmail, permalink);
+function handleRefund_(buyerEmail, tier, source) {
+  const grant = findGrantForRevoke_(buyerEmail, tier);
 
   if (!grant.copyUrl) {
     logGrant_({
-      email: buyerEmail,
-      tier: permalink,
-      timestamp: new Date(),
-      copyUrl: '',
-      status: 'revoke_failed: no prior grant found'
+      email: buyerEmail, tier: tier, timestamp: new Date(), copyUrl: '',
+      status: 'revoke_failed: no prior grant found', source: source
     });
     return ContentService.createTextOutput('revoke_failed: no prior grant found');
   }
@@ -142,20 +154,14 @@ function handleRefund_(buyerEmail, permalink) {
     file.removeEditor(buyerEmail);
 
     logGrant_({
-      email: buyerEmail,
-      tier: permalink,
-      timestamp: new Date(),
-      copyUrl: grant.copyUrl,
-      status: 'revoked'
+      email: buyerEmail, tier: tier, timestamp: new Date(),
+      copyUrl: grant.copyUrl, status: 'revoked', source: source
     });
     return ContentService.createTextOutput('revoked');
   } catch (err) {
     logGrant_({
-      email: buyerEmail,
-      tier: permalink,
-      timestamp: new Date(),
-      copyUrl: grant.copyUrl,
-      status: 'revoke_failed: ' + err.message
+      email: buyerEmail, tier: tier, timestamp: new Date(),
+      copyUrl: grant.copyUrl, status: 'revoke_failed: ' + err.message, source: source
     });
     return ContentService.createTextOutput('revoke_failed: ' + err.message);
   }
@@ -214,16 +220,6 @@ function extractFileIdFromUrl_(url) {
   return match ? match[1] : null;
 }
 
-function buildFailureRow_(params, note) {
-  return {
-    email: params.email || '',
-    tier: params.product_permalink || params.permalink || '',
-    timestamp: new Date(),
-    copyUrl: '',
-    status: note
-  };
-}
-
 function logGrant_(row) {
   const sheet = getGrantsLogSheet_();
   const emailCol = getColIndex(sheet, 'Email');
@@ -231,6 +227,7 @@ function logGrant_(row) {
   const timestampCol = getColIndex(sheet, 'Timestamp');
   const copyUrlCol = getColIndex(sheet, 'Copy URL');
   const statusCol = getColIndex(sheet, 'Status');
+  const sourceCol = getColIndex(sheet, 'Source');
 
   const newRow = new Array(sheet.getLastColumn()).fill('');
   newRow[emailCol - 1] = row.email;
@@ -238,6 +235,7 @@ function logGrant_(row) {
   newRow[timestampCol - 1] = row.timestamp;
   newRow[copyUrlCol - 1] = row.copyUrl;
   newRow[statusCol - 1] = row.status;
+  newRow[sourceCol - 1] = row.source || '';
 
   sheet.appendRow(newRow);
 }
@@ -247,7 +245,22 @@ function getGrantsLogSheet_() {
   const ss = SpreadsheetApp.openById(id);
   const sheet = ss.getSheetByName('Grants_Log') || ss.getSheets()[0];
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Email', 'Tier', 'Timestamp', 'Copy URL', 'Status']);
+    sheet.appendRow(['Email', 'Tier', 'Timestamp', 'Copy URL', 'Status', 'Source']);
+  } else {
+    ensureSourceColumn_(sheet);
   }
   return sheet;
+}
+
+/**
+ * Self-migrating: the live Grants_Log sheet already had real rows before the Source
+ * column existed. Adds it as a new trailing header if missing, without touching
+ * existing rows -- their Source just reads blank, which is fine, they were all
+ * Gumroad from before WooCommerce existed as a second channel.
+ */
+function ensureSourceColumn_(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('Source') === -1) {
+    sheet.getRange(1, sheet.getLastColumn() + 1).setValue('Source');
+  }
 }
