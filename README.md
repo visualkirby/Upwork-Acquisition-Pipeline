@@ -123,11 +123,11 @@ The Google Sheets automation handles:
 
 The pipeline is configured for semi-live updates without manual CSV exports:
 
-- **Google Sheets** — live data entry via Apps Script automation
-- **BigQuery External Tables** — 6 source tabs connected as live external data sources
-- **Connected Sheets** — 8 SQL queries run against external tables on a daily schedule
-- **Power Query (Excel)** — connects to Connected Sheets result tabs, refreshes on file open and every 60 minutes while open
-- **Dashboard** — all KPI tiles and charts update automatically on refresh
+- **Google Sheets:** live data entry via Apps Script automation
+- **BigQuery External Tables:** 6 source tabs connected as live external data sources
+- **Connected Sheets:** 8 SQL queries run against external tables on a daily schedule
+- **Power Query (Excel):** connects to Connected Sheets result tabs, refreshes on file open and every 60 minutes while open
+- **Dashboard:** all KPI tiles and charts update automatically on refresh
 
 No CSV exports required after initial setup.
 
@@ -140,11 +140,11 @@ No CSV exports required after initial setup.
 <!-- ===================== -->
 ![Preview](./Google_Sheets_Sysyem.png)
 
-- **Google Sheets** — operational data entry and formula layer
-- **Google Apps Script** — automation, AI integration, session management
-- **BigQuery** — SQL analysis and data warehousing
-- **OpenAI GPT-4o-mini** — Quick Notes classification, proposal generation, bid recommendations
-- **Excel** — dashboard visualization layer
+- **Google Sheets:** operational data entry and formula layer
+- **Google Apps Script:** automation, AI integration, session management
+- **BigQuery:** SQL analysis and data warehousing
+- **OpenAI GPT-4o-mini:** Quick Notes classification, proposal generation, bid recommendations
+- **Excel:** dashboard visualization layer
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
@@ -190,3 +190,16 @@ Upwork-Acquisition-Pipeline/
 
 The SQL exports from this pipeline feed directly into the Excel dashboard:
 [Upwork Acquisition Dashboard](https://github.com/visualkirby/Upwork-Acquisition-Dashboard)
+
+---
+
+# Author
+
+**Sawandi Kirby**
+
+Data Analytics & Business Intelligence
+Benchline Analytics - Data intelligence for organizations that mean business.
+
+- GitHub: https://github.com/visualkirby
+- LinkedIn: https://linkedin.com/in/sawandi-kirby
+- Kaggle: https://kaggle.com/sawandikirby
