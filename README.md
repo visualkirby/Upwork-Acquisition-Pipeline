@@ -98,9 +98,28 @@ The Google Sheets automation handles:
 - Proposal and follow-up tracker auto-population
 - Month-end snapshot to Monthly_Performance tab
 - Keyword mining from job descriptions
+- HubSpot CRM sync: proposals flow into a HubSpot deal pipeline and advance through stages as the client views, replies, and hires
 - Guided setup wizard (sidebar UI) that provisions all pipeline sheets and formulas for a new user in one pass
 
 [Upwork Acquisition System Apps Script](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/apps-script/) 
+
+---
+
+## 🔗 HubSpot CRM Sync
+
+`apps-script/27_HubSpot_Sync.gs` mirrors the proposal funnel into a HubSpot deal pipeline over the HubSpot CRM API (Private App token, bearer auth). The sync is one-way, Sheet to HubSpot:
+
+| Sheet event | HubSpot action |
+|---|---|
+| Proposal marked `Sent` | Create Contact (by client name) + Deal, place in **Proposal Sent** stage, associate the two, write both IDs back to Proposal_Tracker |
+| `Viewed` = Y | Move Deal to **Reply Received** |
+| `Interview` = Y | Move Deal to **Interview** |
+| `Hired` = Y | Move Deal to **Hired** |
+
+Deal and Contact IDs are stored on the Proposal_Tracker row, so stage moves patch by ID with no re-search. The pipeline ID and four stage IDs come from the Settings sheet, never hardcoded. Every HubSpot call is wrapped so an outage or missing config logs and moves on without breaking the sheet-side flow.
+
+**Setup:** create a HubSpot Private App with contacts + deals read/write scopes, run `System Tools > Setup HubSpot Access Token`, build a deal pipeline with the four stages above, then add `HubSpot_Pipeline_ID` and `HubSpot_Stage_Proposal_Sent` / `_Reply_Received` / `_Interview` / `_Hired` rows to the Settings sheet.
+
 ---
 
 ## 🔑 Key Results (April 2026)
@@ -144,6 +163,7 @@ No CSV exports required after initial setup.
 - **Google Apps Script:** automation, AI integration, session management
 - **BigQuery:** SQL analysis and data warehousing
 - **OpenAI GPT-4o-mini:** Quick Notes classification, proposal generation, bid recommendations
+- **HubSpot CRM API:** deal-pipeline sync from the proposal funnel
 - **Excel:** dashboard visualization layer
 
 <!-- ===================== -->
@@ -168,8 +188,9 @@ Upwork-Acquisition-Pipeline/
 │   └── 07_complexity_breakdown.sql
 ├── apps-script/
 │   ├── 00_Setup_Wizard.gs
-│   ├── 01_Menu.gs ... 17_Bid_Analysis.gs
-│   ├── SetupWizard.html
+│   ├── 01_Menu.gs ... 26_Keyword_Intelligence.gs
+│   ├── 27_HubSpot_Sync.gs
+│   ├── *_Sidebar.html
 │   └── appsscript.json
 └── screenshots/
     ├── Google_BigQuery.png

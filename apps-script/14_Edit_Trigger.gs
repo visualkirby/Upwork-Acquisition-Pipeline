@@ -359,9 +359,11 @@ function handleEdit(e) {
 
     if (ptViewedCol && col === ptViewedCol && ptNewVal === "Y" && ptOldVal !== "Y") {
       incrementConnectsHelperMetric_(ss, "MTD_Replies", 1);
+      hubspotMoveDealStageSafe_(sheet, row, map, "HubSpot_Stage_Reply_Received");
     }
     if (ptInterviewCol && col === ptInterviewCol && ptNewVal === "Y" && ptOldVal !== "Y") {
       incrementConnectsHelperMetric_(ss, "MTD_Interviews", 1);
+      hubspotMoveDealStageSafe_(sheet, row, map, "HubSpot_Stage_Interview");
       // Client replied -- Upwork opens an ongoing chat thread at this point.
       // Auto-open the Chat Import sidebar so the freelancer can paste it in
       // right away instead of hunting for the menu item later. Tour step
@@ -378,6 +380,7 @@ function handleEdit(e) {
     }
     if (ptHiredCol && col === ptHiredCol && ptNewVal === "Y" && ptOldVal !== "Y") {
       incrementConnectsHelperMetric_(ss, "MTD_Hires", 1);
+      hubspotMoveDealStageSafe_(sheet, row, map, "HubSpot_Stage_Hired");
       // Hired -- auto-open the Contract Setup sidebar so the freelancer can
       // log the contract type and milestones right away. contract_saveSetup
       // creates the Contract_Tracker row itself on submit, so nothing needs
@@ -954,6 +957,19 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
       incrementConnectsHelperMetric_(ss, "Total_Connects_Used", totalForCost);
       incrementConnectsHelperMetric_(ss, "Current_Connect_Balance", -totalForCost);
       incrementConnectsHelperMetric_(ss, "Total_Proposal_Cost", totalForCost > 0 ? totalForCost * 0.15 : 0);
+
+      // Push this proposal into HubSpot as a Contact + Deal in the Proposal
+      // Sent stage. Isolated in its own try/catch: a HubSpot outage, an
+      // unset token, or missing Settings config must not break the
+      // sheet-side "Sent" flow it rides along with. Only runs if a token is
+      // present at all, so users not using the CRM sync see nothing.
+      if (PropertiesService.getScriptProperties().getProperty("UPWORK_HUBSPOT_ACCESS_TOKEN")) {
+        try {
+          hubspotSyncProposalSent_(tracker, tracker.getLastRow(), jobTitle, clientName);
+        } catch (hubspotErr) {
+          Logger.log("HubSpot sync (Proposal Sent) failed: " + hubspotErr.message);
+        }
+      }
     }
   } finally {
     ptLock.releaseLock();
