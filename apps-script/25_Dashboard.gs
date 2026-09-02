@@ -52,6 +52,14 @@ function BUILD_DASHBOARD() {
     return;
   }
 
+  // Self-heals Total_Connects_Used/Total_Proposal_Cost against
+  // Proposal_Tracker before reading them below -- see
+  // 15_Formula_Fixes.gs's reconcileConnectsHelperTotals_ for why those two
+  // can drift (an undo mid-way through handleProposalStatusChange_'s several
+  // Connects_Helper writes). Silent since this runs on every routine
+  // Dashboard refresh, not just when checking for drift on purpose.
+  reconcileConnectsHelperTotals_(ss);
+
   var spec   = FFLib.buildDashboardLayoutSpec();
   var colors = FFLib.getDashboardColors();
 

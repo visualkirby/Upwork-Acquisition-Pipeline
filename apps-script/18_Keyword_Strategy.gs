@@ -145,50 +145,70 @@ function GENERATE_KEYWORD_STRATEGY() {
 // Removes Keyword_Search_List rows whose Search_Query matches a keyword
 // marked "Drop" in Keyword_Strategy's Drop column (case/whitespace-insensitive
 // match, since that's how the keyword text was originally written into both
-// sheets). Shared by DROP_KEYWORDS() below and MINE_KEYWORDS() (08_Keyword_
-// Mining.gs), which purges before mining so a dropped keyword doesn't get
-// re-suggested. Keyword_Strategy itself is never touched -- the Drop marker
-// and Recommended_Action history stay exactly as they are.
+// sheets), AND deletes that keyword's own row from Keyword_Strategy -- Drop
+// is a full removal from both sheets, not just a Keyword_Search_List purge.
+// Its Actual_Count/Notes/Recommended_Action history is discarded, but
+// nothing is actually lost: if the same keyword is ever re-added later
+// (Generate Keyword Strategy, Mine Keywords, Scale Keywords), its row gets
+// rebuilt fresh with Actual_Count recomputed straight from Job_Discovery --
+// the real source of truth -- same as any other newly-added keyword.
+//
+// Shared by DROP_KEYWORDS() below, MINE_KEYWORDS() (08_Keyword_Mining.gs),
+// and SCALE_KEYWORDS() above, all of which purge before doing their own work
+// so a dropped keyword doesn't get re-suggested or re-scaled.
+//
+// Returns { searchListRemoved, strategyRemoved } -- separate counts since
+// callers report on both sheets.
 function purgeDroppedKeywords_(ss) {
   var searchListSheet = ss.getSheetByName("Keyword_Search_List");
   var strategySheet   = ss.getSheetByName("Keyword_Strategy");
-  if (!searchListSheet || !strategySheet) return 0;
+  var empty = { searchListRemoved: 0, strategyRemoved: 0 };
+  if (!searchListSheet || !strategySheet) return empty;
 
   var stratLastRow = strategySheet.getLastRow();
-  if (stratLastRow <= 1) return 0;
+  if (stratLastRow <= 1) return empty;
 
   var stratMap = getHeaderMap_(strategySheet);
   var kwCol    = getCol_(stratMap, ["Keyword"]);
   var dropCol  = getCol_(stratMap, ["Drop"]);
-  if (!kwCol || !dropCol) return 0;
+  if (!kwCol || !dropCol) return empty;
 
   var stratData = strategySheet
     .getRange(2, 1, stratLastRow - 1, strategySheet.getLastColumn())
     .getValues();
 
-  var dropSet = {};
+  var dropSet  = {};
+  var dropRows = []; // Keyword_Strategy sheet row numbers to delete
   for (var i = 0; i < stratData.length; i++) {
     var kw   = String(stratData[i][kwCol - 1]).trim().toLowerCase();
     var drop = String(stratData[i][dropCol - 1]).trim();
-    if (drop === "Drop" && kw !== "") dropSet[kw] = true;
-  }
-
-  if (Object.keys(dropSet).length === 0) return 0;
-
-  var slMap      = getHeaderMap_(searchListSheet);
-  var slQueryCol = getCol_(slMap, ["Search_Query"]);
-  if (!slQueryCol) return 0;
-
-  var purgedCount = 0;
-  var slLastRow   = searchListSheet.getLastRow();
-  for (var r = slLastRow; r >= 2; r--) {
-    var cellQuery = String(searchListSheet.getRange(r, slQueryCol).getValue()).trim().toLowerCase();
-    if (dropSet[cellQuery]) {
-      searchListSheet.deleteRow(r);
-      purgedCount++;
+    if (drop === "Drop" && kw !== "") {
+      dropSet[kw] = true;
+      dropRows.push(i + 2);
     }
   }
-  return purgedCount;
+
+  if (Object.keys(dropSet).length === 0) return empty;
+
+  var searchListRemoved = 0;
+  var slMap      = getHeaderMap_(searchListSheet);
+  var slQueryCol = getCol_(slMap, ["Search_Query"]);
+  if (slQueryCol) {
+    var slLastRow = searchListSheet.getLastRow();
+    for (var r = slLastRow; r >= 2; r--) {
+      var cellQuery = String(searchListSheet.getRange(r, slQueryCol).getValue()).trim().toLowerCase();
+      if (dropSet[cellQuery]) {
+        searchListSheet.deleteRow(r);
+        searchListRemoved++;
+      }
+    }
+  }
+
+  // Delete bottom-up so earlier row numbers in dropRows stay valid.
+  dropRows.sort(function (a, b) { return b - a; });
+  dropRows.forEach(function (row) { strategySheet.deleteRow(row); });
+
+  return { searchListRemoved: searchListRemoved, strategyRemoved: dropRows.length };
 }
 
 // Recomputes Keyword_Strategy's Actual_Count for the matching keyword by
@@ -326,15 +346,171 @@ function DROP_KEYWORDS() {
     return;
   }
 
-  var purgedCount = purgeDroppedKeywords_(ss);
+  var purged = purgeDroppedKeywords_(ss);
 
-  if (purgedCount === 0) {
+  if (purged.strategyRemoved === 0) {
     ui.alert(
-      "No keywords marked \"Drop\" in Keyword_Strategy were found in Keyword_Search_List.\n\n" +
-      "Set a keyword's Drop column to \"Drop\" in Keyword_Strategy, then run this again."
+      "No keywords marked \"Drop\" were found in Keyword_Strategy.\n\n" +
+      "Set a keyword's Drop column to \"Drop\", then run this again."
     );
     return;
   }
 
-  ui.alert("Done.\n\n✓ " + purgedCount + " row(s) removed from Keyword_Search_List.");
+  ui.alert(
+    "Done.\n\n" +
+    "✓ " + purged.strategyRemoved + " keyword(s) removed from Keyword_Strategy.\n" +
+    "✓ " + purged.searchListRemoved + " row(s) removed from Keyword_Search_List."
+  );
+}
+
+// Scale is Drop's opposite number: instead of removing a keyword, this
+// generates related search-phrase variations off every keyword marked
+// "Scale" in Keyword_Strategy and adds them to both Keyword_Search_List and
+// Keyword_Strategy. The AI call itself (FFLib.generateKeywordVariations)
+// lives in the Library, same split as GENERATE_KEYWORD_STRATEGY above.
+//
+// New rows are written directly into both sheets here (not left to the
+// KEYWORD_SEARCH_LIST edit-trigger block in 14_Edit_Trigger.gs), same
+// direct-write pattern GENERATE_KEYWORD_STRATEGY uses -- ensureKeywordStrategyRow_
+// would still be safe to rely on since it's idempotent, but writing directly
+// lets this set a Scale-specific Notes value instead of the trigger's generic
+// "Synced from Keyword_Search_List".
+//
+// The Scale flag itself is never cleared, matching Drop's convention -- it's
+// a manual toggle Sawandi controls, not a one-shot switch this function
+// resets. Running it again on the same keyword calls the AI again and skips
+// any duplicate variation text, so it stays safe to re-run.
+function SCALE_KEYWORDS() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  var apiKey;
+  try {
+    apiKey = getApiKey_();
+  } catch (err) {
+    ui.alert(err.message);
+    return;
+  }
+
+  var searchListSheet = ss.getSheetByName("Keyword_Search_List");
+  var strategySheet   = ss.getSheetByName("Keyword_Strategy");
+  if (!searchListSheet || !strategySheet) {
+    ui.alert("Missing sheet. Confirm Keyword_Search_List and Keyword_Strategy both exist.");
+    return;
+  }
+
+  var stratMap    = getHeaderMap_(strategySheet);
+  var stratKwCol  = getCol_(stratMap, ["Keyword"]);
+  var scaleCol    = getCol_(stratMap, ["Scale"]);
+  var actualCol   = getCol_(stratMap, ["Actual_Count"]);
+  var targetCol   = getCol_(stratMap, ["Target_Count"]);
+  var notesCol    = getCol_(stratMap, ["Notes"]);
+
+  if (!stratKwCol || !scaleCol) {
+    ui.alert("Keyword_Strategy is missing its Scale column. Run System Tools > Repair Formulas first.");
+    return;
+  }
+
+  var stratLastRow = strategySheet.getLastRow();
+  if (stratLastRow < 2) {
+    ui.alert("Keyword_Strategy has no keywords yet.");
+    return;
+  }
+
+  var stratData = strategySheet
+    .getRange(2, 1, stratLastRow - 1, strategySheet.getLastColumn())
+    .getValues();
+
+  var toScale = [];
+  stratData.forEach(function (row) {
+    var kw    = String(row[stratKwCol - 1]).trim();
+    var scale = String(row[scaleCol - 1]).trim();
+    if (kw !== "" && scale === "Scale") toScale.push(kw);
+  });
+
+  if (toScale.length === 0) {
+    ui.alert(
+      "No keywords marked \"Scale\" were found in Keyword_Strategy.\n\n" +
+      "Set a keyword's Scale column to \"Scale\", then run this again."
+    );
+    return;
+  }
+
+  // Same purge-before-generating pattern MINE_KEYWORDS uses, so a keyword
+  // that's also marked Drop doesn't get its variations suggested.
+  purgeDroppedKeywords_(ss);
+
+  var settings = getSettings_();
+  var niche    = settings["Freelancer_Background"] || "";
+
+  var slMap      = getHeaderMap_(searchListSheet);
+  var slQueryCol = getCol_(slMap, ["Search_Query"]);
+
+  var existingKeys = {};
+  if (slQueryCol && searchListSheet.getLastRow() >= 2) {
+    searchListSheet
+      .getRange(2, slQueryCol, searchListSheet.getLastRow() - 1, 1)
+      .getValues()
+      .forEach(function (row) {
+        var key = String(row[0]).trim().toLowerCase();
+        if (key !== "") existingKeys[key] = true;
+      });
+  }
+
+  var stratHeaders   = strategySheet.getRange(1, 1, 1, strategySheet.getLastColumn()).getValues()[0];
+  var addedTotal     = 0;
+  var skippedTotal   = 0;
+  var failedKeywords = [];
+
+  toScale.forEach(function (keyword) {
+    var result = FFLib.generateKeywordVariations(keyword, niche, apiKey);
+    if (!result.ok) {
+      failedKeywords.push(keyword + " (" + result.message + ")");
+      return;
+    }
+
+    var newVariations = result.variations.filter(function (v) {
+      var key = String(v).trim().toLowerCase();
+      if (key === "" || existingKeys[key]) return false;
+      existingKeys[key] = true;
+      return true;
+    });
+
+    skippedTotal += (result.variations.length - newVariations.length);
+    if (newVariations.length === 0) return;
+
+    var searchStart = getLastRealRow_(searchListSheet) + 1;
+    var searchRows = newVariations.map(function (v) { return [v, "", "", v]; });
+    searchListSheet.getRange(searchStart, 1, searchRows.length, 4).setValues(searchRows);
+
+    var writeRow = getLastRealRow_(strategySheet) + 1;
+    newVariations.forEach(function (v) {
+      strategySheet.getRange(writeRow, stratKwCol).setValue(v);
+      if (actualCol) strategySheet.getRange(writeRow, actualCol).setValue(0);
+      if (targetCol) strategySheet.getRange(writeRow, targetCol).setValue(DEFAULT_KEYWORD_TARGET_COUNT_);
+      if (notesCol)  strategySheet.getRange(writeRow, notesCol).setValue("Scaled variation of \"" + keyword + "\"");
+
+      var formula = FFLib.buildKeywordStrategyFormula(stratHeaders, writeRow);
+      if (formula.recommendedActionFormula) {
+        strategySheet.getRange(writeRow, formula.recommendedActionCol).setFormula(formula.recommendedActionFormula);
+      }
+
+      writeRow++;
+    });
+
+    addedTotal += newVariations.length;
+  });
+
+  var summary = "Scale Keywords done.\n\n" +
+    "✓ " + addedTotal + " new variation(s) added to Keyword_Search_List and Keyword_Strategy.\n" +
+    "Scaled from " + toScale.length + " keyword(s) marked \"Scale\".";
+
+  if (skippedTotal > 0) {
+    summary += "\n" + skippedTotal + " suggested variation(s) skipped -- already in Keyword_Search_List.";
+  }
+  if (failedKeywords.length > 0) {
+    summary += "\n\n⚠ Failed for: " + failedKeywords.join(", ");
+  }
+
+  ui.alert(summary);
 }

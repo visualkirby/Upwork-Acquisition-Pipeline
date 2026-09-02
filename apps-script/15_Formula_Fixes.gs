@@ -19,6 +19,12 @@
  * headers, and the actual formula text in your scoring columns
  * so you can share it with support -- shown in a dialog to copy
  * into an email, or sent directly only if you click Yes.
+ *
+ * RECONCILE_CONNECTS_HELPER() recomputes Connects_Helper's
+ * Total_Connects_Used/Total_Proposal_Cost directly from
+ * Proposal_Tracker, for when those two running totals drift out
+ * of sync with the rows that actually fed them (see its own
+ * comment below for why that happens).
  * ============================================================
  */
 function REPAIR_FORMULAS() {
@@ -169,6 +175,24 @@ function REPAIR_FORMULAS() {
     }
   }
 
+  // Backfills the Scale column onto a Keyword_Strategy sheet that predates
+  // it -- appended after the last column (Drop), same "add at the end, never
+  // shift existing headers" convention as ensureHourlyLogStatusColumn_ below.
+  // Nothing to backfill row-wise (Scale starts blank same as a fresh sheet),
+  // just the header + its dropdown validation, so this is simpler than the
+  // Hourly_Log case.
+  var stratSheet = ss.getSheetByName('Keyword_Strategy');
+  if (stratSheet) {
+    var stratHeadersForScale = stratSheet.getRange(1, 1, 1, stratSheet.getLastColumn()).getValues()[0];
+    if (stratHeadersForScale.indexOf('Scale') === -1) {
+      var scaleHeaderCol = stratSheet.getLastColumn() + 1;
+      stratSheet.getRange(1, scaleHeaderCol).setValue('Scale').setFontWeight('bold');
+      repaired.push('Keyword_Strategy (added missing Scale column)');
+    }
+    var stratHeadersNow = stratSheet.getRange(1, 1, 1, stratSheet.getLastColumn()).getValues()[0];
+    applyKeywordStrategyValidation_(stratSheet, stratHeadersNow);
+  }
+
   // Re-syncs every EXISTING Keyword_Strategy row's Actual_Count against
   // Job_Discovery (recomputeKeywordStrategyActualCount_, 18_Keyword_Strategy.gs).
   // Covers rows that drifted under the old "+1 on first log" counter (a
@@ -176,7 +200,6 @@ function REPAIR_FORMULAS() {
   // after the fact could all leave Actual_Count wrong) -- this is the
   // one-time "pull" that re-syncs them after updating to the recompute-based
   // Library version.
-  var stratSheet = ss.getSheetByName('Keyword_Strategy');
   if (stratSheet && stratSheet.getLastRow() >= 2) {
     var stratMap2  = getHeaderMap_(stratSheet);
     var stratKwCol2 = getCol_(stratMap2, ['Keyword']);
@@ -273,6 +296,128 @@ function REPAIR_FORMULAS() {
   }
 
   ui.alert('Formulas repaired:\n\n' + repaired.join('\n'));
+}
+
+// Total_Connects_Used and Total_Proposal_Cost are meant to always equal a
+// straight sum across every Proposal_Tracker row -- no month-scoping, no
+// other inputs (see 26_Keyword_Intelligence.gs's own comment: "Proposal_Cost
+// sums Proposal_Tracker's own Proposal_Cost column... same source the
+// corresponding Connects_Helper metrics use"). That makes them safe to
+// blindly recompute and overwrite here, unlike Current_Connect_Balance
+// (also fed by manual Connect_Replenishment/Connect_Returned entries in
+// Connects_Helper itself) or the MTD_*/Monthly_* metrics (period-scoped,
+// reset by SNAPSHOT_MONTH_END/a new month) -- neither of those has a single
+// source of truth to recompute from, so nothing here touches them.
+//
+// Why these two drift: handleProposalStatusChange_ (14_Edit_Trigger.gs)
+// updates them via 5 separate read-modify-write calls to
+// incrementConnectsHelperMetric_, run in sequence after the Proposal_Tracker
+// row is appended. Google Sheets' own Ctrl+Z undo isn't part of Apps
+// Script's execution model at all, so it can revert some of those writes
+// without reverting others, or revert them without reverting the
+// Proposal_Tracker row itself. Confirmed 2026-07-26: an undo/redo
+// troubleshooting session left both metrics short of what Proposal_Tracker's
+// own rows summed to, by exactly the proposals sent that same session.
+//
+// Returns null if Proposal_Tracker or its Connects_Used/Proposal_Cost
+// columns aren't found -- the single place both RECONCILE_CONNECTS_HELPER's
+// on-demand check and the silent auto-heal in BUILD_DASHBOARD/
+// BUILD_KEYWORD_INTELLIGENCE get these two numbers from, so there's one
+// definition of how they're derived.
+function computeConnectsHelperTrueTotals_(ss) {
+  var ptSheet = ss.getSheetByName('Proposal_Tracker');
+  if (!ptSheet) return null;
+
+  var ptMap       = getHeaderMap_(ptSheet);
+  var connectsCol = getCol_(ptMap, ['Connects_Used']);
+  var costCol     = getCol_(ptMap, ['Proposal_Cost']);
+  if (!connectsCol || !costCol) return null;
+
+  var totalConnectsUsed = 0;
+  var totalProposalCost = 0;
+  if (ptSheet.getLastRow() >= 2) {
+    var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptSheet.getLastColumn()).getValues();
+    ptData.forEach(function (row) {
+      totalConnectsUsed += Number(row[connectsCol - 1]) || 0;
+      totalProposalCost += parseDollarString_(row[costCol - 1]);
+    });
+  }
+
+  return {
+    Total_Connects_Used: totalConnectsUsed,
+    Total_Proposal_Cost: Math.round(totalProposalCost * 100) / 100
+  };
+}
+
+// Overwrites Connects_Helper's Total_Connects_Used/Total_Proposal_Cost with
+// computeConnectsHelperTrueTotals_'s values wherever they've drifted -- no
+// UI, so it's safe to call as a routine silent pre-step from anything that
+// reads either metric (BUILD_DASHBOARD, BUILD_KEYWORD_INTELLIGENCE), not
+// just the explicit on-demand menu item. Returns one {metric, from, to,
+// diff, changed} entry per target metric found in Connects_Helper, whether
+// or not it needed correcting, so a caller can report on it or just ignore
+// the return value.
+function reconcileConnectsHelperTotals_(ss) {
+  var chSheet    = ss.getSheetByName('Connects_Helper');
+  var trueTotals = computeConnectsHelperTrueTotals_(ss);
+  if (!chSheet || !trueTotals || chSheet.getLastRow() < 2) return [];
+
+  var metricData = chSheet.getRange(2, 1, chSheet.getLastRow() - 1, 2).getValues();
+  var results = [];
+
+  for (var i = 0; i < metricData.length; i++) {
+    var metricName = String(metricData[i][0]).trim();
+    if (!trueTotals.hasOwnProperty(metricName)) continue;
+
+    var currentValue = Number(metricData[i][1]) || 0;
+    var trueValue     = trueTotals[metricName];
+    var diff          = Math.round((trueValue - currentValue) * 100) / 100;
+    var changed       = Math.abs(diff) > 0.005;
+
+    if (changed) chSheet.getRange(i + 2, 2).setValue(trueValue);
+
+    results.push({ metric: metricName, from: currentValue, to: trueValue, diff: diff, changed: changed });
+  }
+
+  return results;
+}
+
+// Manual on-demand version (System Tools > Reconcile Connects_Helper
+// Totals) -- same numbers and the same writes as the silent auto-heal
+// above, but always shows a report (including metrics that were already
+// correct) since this is something you run specifically to check.
+function RECONCILE_CONNECTS_HELPER() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  var ptSheet = ss.getSheetByName('Proposal_Tracker');
+  var chSheet = ss.getSheetByName('Connects_Helper');
+  if (!ptSheet || !chSheet) {
+    ui.alert('Proposal_Tracker or Connects_Helper sheet not found.');
+    return;
+  }
+  if (!computeConnectsHelperTrueTotals_(ss)) {
+    ui.alert('Proposal_Tracker is missing its Connects_Used or Proposal_Cost column.');
+    return;
+  }
+  if (chSheet.getLastRow() < 2) {
+    ui.alert('Connects_Helper has no metric rows to reconcile.');
+    return;
+  }
+
+  var results = reconcileConnectsHelperTotals_(ss);
+  if (results.length === 0) {
+    ui.alert('Total_Connects_Used / Total_Proposal_Cost rows not found in Connects_Helper.');
+    return;
+  }
+
+  var report = results.map(function (r) {
+    return r.changed
+      ? r.metric + ': ' + r.from + ' -> ' + r.to + ' (was off by ' + r.diff + ')'
+      : r.metric + ': ' + r.from + ' (already correct)';
+  });
+
+  ui.alert('Connects_Helper reconciled against Proposal_Tracker:\n\n' + report.join('\n'));
 }
 
 // Adds a Status column to an existing Hourly_Log sheet that predates it --

@@ -52,6 +52,14 @@ function BUILD_KEYWORD_INTELLIGENCE() {
     return;
   }
 
+  // Self-heals Total_Connects_Used/Total_Proposal_Cost against Proposal_Tracker
+  // before the cross-check below reads Total_Proposal_Cost -- see
+  // 15_Formula_Fixes.gs's reconcileConnectsHelperTotals_ for why those two can
+  // drift out of sync (an undo mid-way through handleProposalStatusChange_'s
+  // several Connects_Helper writes). Without this, the cross-check below could
+  // misreport counter drift as an orphaned keyword.
+  reconcileConnectsHelperTotals_(ss);
+
   var keywords = getUniqueKeywords_(searchListSheet);
   if (keywords.length === 0) {
     ui.alert("Keyword_Search_List has no Search_Query values yet -- nothing to analyze.");

@@ -37,7 +37,7 @@ function MINE_KEYWORDS() {
     return;
   }
 
-  var purgedCount = purgeDroppedKeywords_(ss);
+  var purged = purgeDroppedKeywords_(ss);
 
   var slMap        = getHeaderMap_(searchListSheet);
   var slLastRow    = searchListSheet.getLastRow();
@@ -113,8 +113,9 @@ function MINE_KEYWORDS() {
     summary += "-> " + (candidates.length - toWrite.length) +
                " additional combinations ready for your next run.\n";
   }
-  if (purgedCount > 0) {
-    summary += "✓ " + purgedCount + " dropped keyword row(s) removed from Keyword_Search_List before writing.";
+  if (purged.strategyRemoved > 0) {
+    summary += "✓ " + purged.strategyRemoved + " dropped keyword(s) removed from Keyword_Strategy and " +
+      purged.searchListRemoved + " row(s) removed from Keyword_Search_List before writing.";
   }
 
   ui.alert(summary);

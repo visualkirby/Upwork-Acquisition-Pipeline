@@ -97,9 +97,13 @@ function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
   // "first matching keyword wins", and a typical portfolio's keywords overlap
   // too much for that to mean anything (a real test found "Dashboard" listed
   // on 5 of 7 projects, so whichever project happened to be listed first won
-  // 10 of 13 real jobs regardless of actual fit). See pickPortfolioProject
-  // below -- same inputs, but scores every project by keyword-match count
-  // and picks the best-covered one. Called from the thin client
+  // 10 of 13 real jobs regardless of actual fit). A later keyword-count-scoring
+  // version fixed the overlap problem but still put the matching burden on
+  // customers correctly anticipating job phrasing in a hand-authored keyword
+  // list. See pickPortfolioProject below -- now an AI classification off each
+  // project's own Name + Description instead, since FreelanceFlow customers
+  // name/describe their portfolio projects however they want and no fixed
+  // keyword scheme can generalize across that. Called from the thin client
   // (RUN_JOB_CLASSIFICATION, 11_Job_Classifier.gs) instead of live in-sheet,
   // since Proposal_Generator's Job_Title/Description arrive via a FILTER
   // pull that never fires an edit event to recompute a formula against.
@@ -107,60 +111,75 @@ function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
   return result;
 }
 
-// Scores every portfolio project by how many of its OWN keywords appear
-// (word-boundary matched, case-insensitive) in the job's title + description
-// combined, and returns the name of the best-covered project -- replaces the
-// old buildPortfolioFormula_ formula-builder, which returned the first
-// project whose first keyword happened to match. Ties keep the earlier
-// project (portfolioMap's own numeric order, i.e. the order projects were
-// entered in Settings/Projects).
+// AI-classifies which portfolio project best matches a job, off each
+// project's own Project_Name + Description -- the same information a
+// customer already has to write for their own Upwork portfolio, so there's
+// no separate keyword-authoring step to skip or get wrong. Replaces the
+// earlier keyword-regex version (scored projects by counting word-boundary
+// keyword hits), which put the matching burden on the customer correctly
+// anticipating job phrasing in a hand-maintained Keywords field -- FreelanceFlow
+// customers name and describe their own projects however they want, so a
+// fixed keyword list can't generalize across them the way an AI read of the
+// actual description can. Mirrors FFLib.getJobType's classify-into-one-of-N
+// pattern (Lib_JobClassifier.gs): constrained prompt, reply-with-name-only,
+// substring match back to a known project name, fallback to the first
+// project on any failure (no API key, parse error, no match in the reply) --
+// same "always attribute something" default the old version used, just a
+// different mechanism for getting there.
 //
-// Same three fallback strings the old formula used, so callers don't need to
-// change: no portfolio projects at all, projects exist but none have
-// keywords, or (new) keywords exist but none matched this job -- the last
-// case still falls back to the first project's name, same "always attribute
-// something" default as before.
-function pickPortfolioProject(jobTitle, description, portfolioMap) {
+// Skips the AI call entirely for 0 or 1 real project (nothing to choose
+// between), so no cost is added over the old version in the common
+// single-project-portfolio case.
+function pickPortfolioProject(jobTitle, description, portfolioMap, apiKey) {
   var map = portfolioMap || {};
   var pNums = Object.keys(map).map(Number).sort(function (a, b) { return a - b; });
+  var projects = pNums.map(function (n) { return map[n]; }).filter(function (p) { return p && p.name; });
 
-  if (pNums.length === 0) {
+  if (projects.length === 0) {
     return 'Add portfolio projects via FreelanceFlow Setup';
   }
 
-  function regexEscape(t) {
-    return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function fallback_() {
+    return projects[0].name;
   }
 
-  var combined    = (String(jobTitle || '') + ' ' + String(description || '')).toLowerCase();
-  var anyKeywords = false;
-  var bestName    = '';
-  var bestCount   = -1;
+  if (projects.length === 1 || !apiKey) return fallback_();
 
-  for (var p = 0; p < pNums.length; p++) {
-    var proj = map[pNums[p]];
-    if (!proj || !proj.name) continue;
-    if (!bestName) bestName = proj.name;
+  var projectText = projects.map(function (p) {
+    return p.name + (p.description ? (' (' + p.description + ')') : '');
+  }).join('; ');
 
-    var count = 0;
-    (proj.keywords || []).forEach(function (kw) {
-      if (!kw) return;
-      anyKeywords = true;
-      var re = new RegExp('\\b' + regexEscape(kw) + '\\b', 'i');
-      if (re.test(combined)) count++;
+  var prompt =
+    "Pick exactly one portfolio project that best matches this Upwork job, based on the project " +
+    "descriptions below. Reply with only the project name and nothing else.\n\n" +
+    "Portfolio projects: " + projectText + "\n\n" +
+    "Job: " + jobTitle + ". " + String(description || '').substring(0, 800);
+
+  try {
+    var response = UrlFetchApp.fetch("https://api.openai.com/v1/chat/completions", {
+      method: "post",
+      contentType: "application/json",
+      headers: { "Authorization": "Bearer " + apiKey },
+      payload: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 20,
+        temperature: 0
+      }),
+      muteHttpExceptions: true
     });
 
-    if (count > bestCount) {
-      bestCount = count;
-      bestName  = proj.name;
+    var parsed = JSON.parse(response.getContentText());
+    if (!parsed.choices || !parsed.choices[0]) return fallback_();
+
+    var text = parsed.choices[0].message.content.trim();
+    for (var i = 0; i < projects.length; i++) {
+      if (text.indexOf(projects[i].name) !== -1) return projects[i].name;
     }
+    return fallback_();
+  } catch (err) {
+    return fallback_();
   }
-
-  if (!anyKeywords) {
-    return 'Add portfolio keyword mappings in Settings sheet';
-  }
-
-  return bestName;
 }
 
 

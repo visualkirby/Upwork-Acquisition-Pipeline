@@ -333,7 +333,7 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     { name: 'Hourly_Log',       headers: ['Discovery_ID','Job_Title','Log_Date','Hours_Logged','Amount','Status','Notes'] },
     { name: 'Session_Log',       headers: ['Session_ID','Date','Start_Time','End_Time','Duration','Keywords_Searched','Jobs_Logged','Jobs_Moved_To_Scoring','Jobs_Review_Later','Duplicates_Skipped','Session_Yield','Saturation_Flag','Proposal_Trigger','Proposals_Sent','Proposals_Skipped','Connects_Spent','Notes'] },
     { name: 'Keyword_Search_List', headers: ['Tool','Business_Area','Intent','Search_Query','Last_Searched','Session_Yield'] },
-    { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop'] },
+    { name: 'Keyword_Strategy',  headers: ['Keyword','Recommended_Action','Actual_Count','Target_Count','Notes','Drop','Scale'] },
     // No fixed headers -- BUILD_KEYWORD_INTELLIGENCE (26_Keyword_Intelligence.gs)
     // clears and rewrites this sheet's full layout on every refresh, same
     // pattern as Dashboard below.
@@ -713,8 +713,15 @@ function applyHourlyLogValidation_(sheet, headers) {
 
 // Drop is a manual override, separate from the formula-driven
 // Recommended_Action column -- select "Drop" on a keyword, then run
-// System Tools > Drop Keywords (18_Keyword_Strategy.gs) to purge it from
-// Keyword_Search_List. This row itself is never touched by that purge.
+// System Tools > Drop Keywords (18_Keyword_Strategy.gs) to remove it from
+// both Keyword_Search_List and this row's own Keyword_Strategy entry.
+//
+// Scale is the same kind of manual override, opposite direction -- select
+// "Scale" on a keyword, then run System Tools > Scale Keywords
+// (18_Keyword_Strategy.gs) to generate related search-phrase variations off
+// it. Independent of Drop -- both columns can be set on the same row, though
+// doing so is a contradictory combination: Drop still deletes the row
+// regardless of the Scale flag on it.
 function applyKeywordStrategyValidation_(sheet, headers) {
   var dropRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['Drop'], true)
@@ -724,6 +731,16 @@ function applyKeywordStrategyValidation_(sheet, headers) {
   var dropCol = headers.indexOf('Drop') + 1;
   if (dropCol > 0) {
     sheet.getRange(2, dropCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(dropRule);
+  }
+
+  var scaleRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Scale'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  var scaleCol = headers.indexOf('Scale') + 1;
+  if (scaleCol > 0) {
+    sheet.getRange(2, scaleCol, FORMULA_PREFILL_ROWS, 1).setDataValidation(scaleRule);
   }
 }
 

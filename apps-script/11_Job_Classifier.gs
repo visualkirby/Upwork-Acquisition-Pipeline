@@ -98,8 +98,9 @@ function RUN_JOB_CLASSIFICATION() {
     if (portfolioCol && (desc || title)) {
       var currentPortfolio = String(portfValues[i][0]).trim();
       if (!currentPortfolio) {
-        sheet.getRange(r, portfolioCol).setValue(FFLib.pickPortfolioProject(title, desc, portfolioMap));
+        sheet.getRange(r, portfolioCol).setValue(FFLib.pickPortfolioProject(title, desc, portfolioMap, apiKey));
         portfolioSet++;
+        if (portfolioSet % 5 === 0) Utilities.sleep(1000);
       }
     }
   }

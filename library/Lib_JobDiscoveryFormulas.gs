@@ -13,9 +13,9 @@
  * Tool_Detected is the one formula that must be built fresh per
  * user (its IFS clauses depend on however many tools *this* user
  * listed in Primary_Tools) -- same precedent as pickPortfolioProject
- * (Lib_WizardFormulas.gs) baking in that user's own portfolio
- * keywords at call time. REPAIR_FORMULAS() re-calls this if the user
- * updates Primary_Tools later.
+ * (Lib_WizardFormulas.gs) reading that user's own Projects sheet at
+ * call time. REPAIR_FORMULAS() re-calls this if the user updates
+ * Primary_Tools later.
  * ============================================================
  */
 function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
