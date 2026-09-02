@@ -13,6 +13,14 @@
  * generateAiProposal: auto-triggered generator fired when a job
  * is marked APPLY in Job_Scoring.
  *
+ * Both generators take an optional mandatoryProject -- the row's
+ * Portfolio_Project value, picked per-job by RUN_JOB_CLASSIFICATION
+ * (FFLib.pickPortfolioProject). When set, the proposal MUST cite
+ * that exact project. Before this was wired through, the column was
+ * written and displayed but never read back, so every proposal fell
+ * back to the template's Credential_Hint or the first project in the
+ * portfolio list.
+ *
  * Note: template lookup (reading the Proposal_Templates sheet)
  * stays in the thin client's lookupProposalTemplate_ -- it's
  * sheet I/O, not proprietary logic.
@@ -162,7 +170,8 @@ function getPortfolioContext(settings) {
 
 
 function generateAIProposal(jobTitle, description, toolDetected, jobType, template,
-                             apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength) {
+                             apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength,
+                             mandatoryProject) {
   if (!apiKey) return 'API key not set. Run System Tools > Setup API Key first.';
 
   var lengthSpec     = resolveProposalLengthSpec_(proposalLength);
@@ -175,7 +184,13 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   var portfolioParts = portfolioAll
     ? portfolioAll.split(';').map(function(p) { return p.trim(); }).filter(function(p) { return p; })
     : [];
-  var cred = credentialHint || (portfolioParts.length > 0 ? portfolioParts[0] : 'a portfolio project');
+
+  // The per-job Portfolio_Project pick (mandatoryProject) wins over the
+  // template's fixed Credential_Hint, which wins over "just use the first
+  // one". Rule 6 below forces the proposal to name whichever this resolves
+  // to and no other.
+  var forcedProject = mandatoryProject ? String(mandatoryProject).trim() : '';
+  var cred = forcedProject || credentialHint || (portfolioParts.length > 0 ? portfolioParts[0] : 'a portfolio project');
 
   var prompt =
     'You are writing an Upwork proposal for a freelancer named ' + (freelancerName || 'the freelancer') + '. ' +
@@ -188,7 +203,8 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     '3. Do NOT use bullet points or numbered lists. ' +
     '4. Do NOT list skills or tools generically. ' +
     '5. First sentence MUST reference a specific detail from the job description -- not a generic observation. ' +
-    '6. You MUST reference this exact portfolio project by name in the proposal: ' + cred + ' -- do not substitute a different project. ' +
+    'Write the proposal in full; do not begin mid-sentence and capitalize the first word. ' +
+    '6. You MUST reference this exact portfolio project by name in the proposal: ' + cred + ' -- do not substitute or add a different project. ' +
     '7. End with exactly one direct question. No offers to help. ' +
     'STRATEGIC ANGLE: ' + (angle || 'Lead with the specific client problem, not credentials.') + ' ' +
     'TONE: ' + (tone || 'Direct') + '. ' +
@@ -229,7 +245,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
 
 
 function generateAiProposal(jobTitle, description, toolDetected, jobType, proposalCount, budget, keywordSearch,
-                             apiKey, portfolioContext, freelancerName, proposalLength) {
+                             apiKey, portfolioContext, freelancerName, proposalLength, mandatoryProject) {
   if (!apiKey) return 'API key not set. Run System Tools > Setup API Key.';
 
   var lengthSpec = resolveProposalLengthSpec_(proposalLength);
@@ -241,6 +257,12 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     ? 'This job has ' + proposalCount + ' proposals -- be specific and direct.'
     : 'This job has few proposals -- a clear, confident proposal will stand out easily.';
 
+  var forcedProject = mandatoryProject ? String(mandatoryProject).trim() : '';
+  var secondParagraphRule = forcedProject
+    ? 'Second paragraph: connect this specific portfolio project, by name -- ' + forcedProject +
+      ' -- directly to what this client needs. Reference that project and no other. Be concrete. '
+    : 'Second paragraph: connect one of the freelancer\'s portfolio projects or specific experience directly to what this client needs. Be concrete, not vague. ';
+
   var prompt =
     'You are writing an Upwork proposal for ' + name + ', a freelancer. ' +
     'Write a complete proposal in exactly 3 paragraphs, between ' + lengthSpec.words +
@@ -248,8 +270,9 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     'Rules you must follow: ' +
     'Do NOT start with Hi or the client\'s name. ' +
     'Do NOT open with I or My or a statement about the freelancer. ' +
+    'Write the proposal in full -- do not begin mid-sentence, and capitalize the first word. ' +
     'Open with something specific from the job description that shows you read it carefully -- reference the actual problem or tool or industry. ' +
-    'Second paragraph: connect one of the freelancer\'s portfolio projects or specific experience directly to what this client needs. Be concrete, not vague. ' +
+    secondParagraphRule +
     'Third paragraph: end with ONE specific question that invites a reply. Not an offer to do free work. A question that shows you understand the project. ' +
     'No bullet points. No sign-off. No filler phrases like I would love to or I am confident. Sound like a practitioner, not an applicant. ' +
     competitionNote + ' ' +

@@ -231,9 +231,10 @@ function handleEdit(e) {
         if (aiJobTitle && aiDescription) {
           var pgSheet = ss.getSheetByName("Proposal_Generator");
           if (pgSheet && pgSheet.getLastRow() > 1) {
-            var pgMap2      = getHeaderMap_(pgSheet);
-            var pgTitleCol2 = getCol_(pgMap2, ["Job_Title"]);
-            var pgAiCol2    = getCol_(pgMap2, ["AI_Generated_Proposal"]);
+            var pgMap2         = getHeaderMap_(pgSheet);
+            var pgTitleCol2    = getCol_(pgMap2, ["Job_Title"]);
+            var pgAiCol2       = getCol_(pgMap2, ["AI_Generated_Proposal"]);
+            var pgPortfolioCol2 = getCol_(pgMap2, ["Portfolio_Project"]);
 
             if (pgTitleCol2 && pgAiCol2) {
               var pgData = pgSheet
@@ -251,10 +252,17 @@ function handleEdit(e) {
                     var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
                     var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
                     var autoProposalLength   = autoSettings['Proposal_Length'] || 'Medium';
+                    // Usually blank at APPLY time (RUN_JOB_CLASSIFICATION picks
+                    // the project later), in which case generateAiProposal
+                    // behaves as before; passed through for the case where a
+                    // row was already classified when the proposal regenerates.
+                    var autoMandatoryProject = pgPortfolioCol2
+                      ? String(pgSheet.getRange(pgRow, pgPortfolioCol2).getValue()).trim() : "";
                     aiProposalText = FFLib.generateAiProposal(
                       aiJobTitle, aiDescription, aiTool,
                       aiJobType, aiProposalCount, aiBudget, aiKeyword,
-                      autoApiKey, autoPortfolioContext, autoFreelancerName, autoProposalLength
+                      autoApiKey, autoPortfolioContext, autoFreelancerName, autoProposalLength,
+                      autoMandatoryProject
                     );
                   } catch (err) {
                     aiProposalText = err.message;
@@ -665,22 +673,24 @@ function applyBoostConnects_(ss, sheet, row, map) {
 
   if (boostVal === "" || boostVal === null) return;
 
-  var titleColPG   = getCol_(map, ["Job_Title"]);
-  var descColPG    = getCol_(map, ["Description"]);
-  var toolColPG    = getCol_(map, ["Tool_Detected"]);
-  var jobTypeColPG = getCol_(map, ["Job_Type"]);
-  var tmplColPG    = getCol_(map, ["Recommended_Template"]);
-  var hookColPG    = getCol_(map, ["Hook_Version"]);
-  var ctaColPG     = getCol_(map, ["CTA_Version"]);
-  var aiPropColPG  = getCol_(map, ["AI_Generated_Proposal"]);
+  var titleColPG     = getCol_(map, ["Job_Title"]);
+  var descColPG      = getCol_(map, ["Description"]);
+  var toolColPG      = getCol_(map, ["Tool_Detected"]);
+  var jobTypeColPG   = getCol_(map, ["Job_Type"]);
+  var tmplColPG      = getCol_(map, ["Recommended_Template"]);
+  var hookColPG      = getCol_(map, ["Hook_Version"]);
+  var ctaColPG       = getCol_(map, ["CTA_Version"]);
+  var portfolioColPG = getCol_(map, ["Portfolio_Project"]);
+  var aiPropColPG    = getCol_(map, ["AI_Generated_Proposal"]);
 
-  var pgTitle    = titleColPG   ? sheet.getRange(row, titleColPG).getValue()   : "";
-  var pgDesc     = descColPG    ? sheet.getRange(row, descColPG).getValue()    : "";
-  var pgTool     = toolColPG    ? sheet.getRange(row, toolColPG).getValue()    : "";
-  var pgJobType  = jobTypeColPG ? sheet.getRange(row, jobTypeColPG).getValue() : "";
-  var pgTemplate = tmplColPG    ? sheet.getRange(row, tmplColPG).getValue()    : "";
-  var pgHook     = hookColPG    ? sheet.getRange(row, hookColPG).getValue()    : "";
-  var pgCta      = ctaColPG     ? sheet.getRange(row, ctaColPG).getValue()     : "";
+  var pgTitle     = titleColPG     ? sheet.getRange(row, titleColPG).getValue()     : "";
+  var pgDesc      = descColPG      ? sheet.getRange(row, descColPG).getValue()      : "";
+  var pgTool      = toolColPG      ? sheet.getRange(row, toolColPG).getValue()      : "";
+  var pgJobType   = jobTypeColPG   ? sheet.getRange(row, jobTypeColPG).getValue()   : "";
+  var pgTemplate  = tmplColPG      ? sheet.getRange(row, tmplColPG).getValue()      : "";
+  var pgHook      = hookColPG      ? sheet.getRange(row, hookColPG).getValue()      : "";
+  var pgCta       = ctaColPG       ? sheet.getRange(row, ctaColPG).getValue()       : "";
+  var pgPortfolio = portfolioColPG ? sheet.getRange(row, portfolioColPG).getValue() : "";
 
   if (!pgDesc || !aiPropColPG) return;
 
@@ -701,7 +711,8 @@ function applyBoostConnects_(ss, sheet, row, map) {
     var boostProposalLength = boostSettings['Proposal_Length'] || 'Medium';
     aiProposal = FFLib.generateAIProposal(
       pgTitle, pgDesc, pgTool, pgJobType, boostTemplate,
-      boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName, boostProposalLength
+      boostApiKey, boostJourneyContext, boostPortfolioAll, boostProposalTone, boostFreelancerName, boostProposalLength,
+      pgPortfolio
     );
   } catch (err) {
     aiProposal = err.message;

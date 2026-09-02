@@ -14,7 +14,15 @@
  *   pull, which never fires an edit event, so nothing recomputes a formula
  *   automatically the way Job_Discovery's Tool_Detected does. This is the
  *   catch-up pass for both.
- * RUN_AI_PROPOSALS: batch-generates AI proposals for all unfilled rows
+ *   When it fills Portfolio_Project on a row for the first time, it also
+ *   blanks that row's AI_Generated_Proposal (unless already Sent/Skip) --
+ *   the proposal auto-drafted at APPLY time predates the project pick and
+ *   cites the wrong project, so RUN_AI_PROPOSALS regenerates it against the
+ *   pick on the next run.
+ * RUN_AI_PROPOSALS: batch-generates AI proposals for all unfilled rows,
+ *   passing each row's Portfolio_Project through so the proposal names the
+ *   project the classifier picked for that job rather than defaulting to the
+ *   template's Credential_Hint or the first project in the portfolio list.
  * ============================================================
  */
 function RUN_JOB_CLASSIFICATION() {
@@ -35,6 +43,8 @@ function RUN_JOB_CLASSIFICATION() {
   var hookCol      = getCol_(map, ["Hook_Version"]);
   var ctaCol       = getCol_(map, ["CTA_Version"]);
   var portfolioCol = getCol_(map, ["Portfolio_Project"]);
+  var aiPropCol    = getCol_(map, ["AI_Generated_Proposal"]);
+  var statusCol    = getCol_(map, ["Proposal_Status"]);
 
   if (!descCol || !jobTypeCol || !titleCol) {
     ui.alert("Required columns not found. Confirm Job_Title, Description, and Job_Type columns exist.");
@@ -100,6 +110,20 @@ function RUN_JOB_CLASSIFICATION() {
       if (!currentPortfolio) {
         sheet.getRange(r, portfolioCol).setValue(FFLib.pickPortfolioProject(title, desc, portfolioMap, apiKey));
         portfolioSet++;
+
+        // Any proposal already on this row was auto-drafted (when the job was
+        // marked APPLY) before this project pick existed, so it cites the
+        // wrong project. Blank it -- but only when the freelancer hasn't acted
+        // on it yet -- so RUN_AI_PROPOSALS regenerates it against the pick.
+        // Rows classified on an earlier run already have a Portfolio_Project,
+        // so this only touches rows being classified for the first time.
+        if (aiPropCol) {
+          var rowStatus = statusCol ? String(sheet.getRange(r, statusCol).getValue()).trim() : "";
+          if (rowStatus !== "Sent" && rowStatus !== "Skip") {
+            sheet.getRange(r, aiPropCol).setValue("");
+          }
+        }
+
         if (portfolioSet % 5 === 0) Utilities.sleep(1000);
       }
     }
@@ -112,6 +136,10 @@ function RUN_JOB_CLASSIFICATION() {
     "✓ " + portfolioSet + " Portfolio_Project values filled.";
   if (noTemplateMatch > 0) {
     msg += "\n⚠ " + noTemplateMatch + " rows had no matching template and no Is_Default row is set in Proposal_Templates.";
+  }
+  if (portfolioSet > 0) {
+    msg += "\n\nRun System Tools > Run AI Proposals next -- the drafts on the " + portfolioSet +
+           " newly classified row(s) were cleared so they regenerate against the project just picked.";
   }
   ui.alert(msg);
 
@@ -215,6 +243,7 @@ function RUN_AI_PROPOSALS() {
   var tmplCol      = getCol_(map, ["Recommended_Template"]);
   var hookCol      = getCol_(map, ["Hook_Version"]);
   var ctaCol       = getCol_(map, ["CTA_Version"]);
+  var portfolioCol = getCol_(map, ["Portfolio_Project"]);
   var aiPropCol    = getCol_(map, ["AI_Generated_Proposal"]);
   var questionsCol = getCol_(map, ["Additional_Questions"]);
   var answersCol   = getCol_(map, ["Additional_Answers"]);
@@ -256,6 +285,7 @@ function RUN_AI_PROPOSALS() {
     var ctaVer    = ctaCol       ? String(data[i][ctaCol       - 1]).trim() : "A";
     var questions = questionsCol ? String(data[i][questionsCol - 1]).trim() : "";
     var answers   = answersCol   ? String(data[i][answersCol   - 1]).trim() : "";
+    var portfolioProject = portfolioCol ? String(data[i][portfolioCol - 1]).trim() : "";
 
     var dataRow       = i + 2;
     var needsProposal = desc && !(aiProp && aiProp !== "" && aiProp !== "Drafting proposal...");
@@ -270,7 +300,8 @@ function RUN_AI_PROPOSALS() {
       sheet.getRange(dataRow, aiPropCol).setValue("Drafting proposal...");
       var template = lookupProposalTemplate_(tmplId || "T1", hookVer || "A", ctaVer || "A");
       var result = FFLib.generateAIProposal(jobTitle, desc, tool, jobType, template,
-                                            apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength);
+                                            apiKey, journeyContext, portfolioAll, proposalTone, freelancerName, proposalLength,
+                                            portfolioProject);
       sheet.getRange(dataRow, aiPropCol).setValue(result);
       count++;
     }
