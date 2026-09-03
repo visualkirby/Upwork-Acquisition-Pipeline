@@ -31,57 +31,57 @@ Google Sheets (live data entry + Apps Script automation) → CSV exports → Big
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Google_BigQuery.png)
+![Preview](./screenshots/Google_BigQuery.png)
 
 | File | Description |
 |------|-------------|
-| [01_pipeline_funnel](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/01_pipeline_funnel.sql) | Conversion rates across all 4 pipeline stages |
-| [02_keyword_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/02_keyword_performance.sql) | APPLY rate, avg score, competition, and efficiency by keyword |
-| [03_tool_market_share](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/03_tool_market_share.sql) | Job volume and scoring rate by BI tool |
-| [04_score_distribution](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/04_score_distribution.sql) | Score band breakdown with APPLY/SKIP counts + avg score |
-| [05_session_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/05_session_performance.sql) | Session-level yield, connects, and proposal activity |
-| [06_proposal_analysis](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/06_proposal_analysis.sql) | Template performance with reply, interview, and hire rates |
-| [07_complexity_breakdown](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/07_complexity_breakdown.sql) | Priority score, connect efficiency, and status by keyword |
+| [01_pipeline_funnel](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/01_pipeline_funnel.sql) | Conversion rates across all 4 pipeline stages |
+| [02_keyword_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/02_keyword_performance.sql) | APPLY rate, avg score, competition, and efficiency by keyword |
+| [03_tool_market_share](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/03_tool_market_share.sql) | Job volume and scoring rate by BI tool |
+| [04_score_distribution](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/04_score_distribution.sql) | Score band breakdown with APPLY/SKIP counts + avg score |
+| [05_session_performance](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/05_session_performance.sql) | Session-level yield, connects, and proposal activity |
+| [06_proposal_analysis](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/06_proposal_analysis.sql) | Template performance with reply, interview, and hire rates |
+| [07_complexity_breakdown](https://github.com/visualkirby/Upwork-Acquisition-Pipeline/blob/main/queries/07_complexity_breakdown.sql) | Priority score, connect efficiency, and status by keyword |
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Pipeline_Funnel_Results.png)
+![Preview](./screenshots/Pipeline_Funnel_Results.png)
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Keyword_Performance_Results.png)
-
-
-<!-- ===================== -->
-<!--        PREVIEW        -->
-<!-- ===================== -->
-![Preview](./Tool_Market_Share_Results.png)
+![Preview](./screenshots/Keyword_Performance_Results.png)
 
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Score_Distribution_Results.png)
+![Preview](./screenshots/Tool_Market_Share_Results.png)
 
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Session_Performance_Results.png)
+![Preview](./screenshots/Score_Distribution_Results.png)
 
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Proposal_Analysis_Results.png)
+![Preview](./screenshots/Session_Performance_Results.png)
 
 
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Complexity_Results.png)
+![Preview](./screenshots/Proposal_Analysis_Results.png)
+
+
+<!-- ===================== -->
+<!--        PREVIEW        -->
+<!-- ===================== -->
+![Preview](./screenshots/Complexity_Breakdown_Results.png)
 
 
 ---
@@ -118,7 +118,21 @@ The Google Sheets automation handles:
 
 Deal and Contact IDs are stored on the Proposal_Tracker row, so stage moves patch by ID with no re-search. The pipeline ID and four stage IDs come from the Settings sheet, never hardcoded. Every HubSpot call is wrapped so an outage or missing config logs and moves on without breaking the sheet-side flow.
 
-**Setup:** create a HubSpot Private App with contacts + deals read/write scopes, run `System Tools > Setup HubSpot Access Token`, build a deal pipeline with the four stages above, then add `HubSpot_Pipeline_ID` and `HubSpot_Stage_Proposal_Sent` / `_Reply_Received` / `_Interview` / `_Hired` rows to the Settings sheet.
+![HubSpot deal pipeline board with the four proposal-funnel stages](./screenshots/hubspot-deal-pipeline.png)
+
+Each stage move is written by the sync, not by hand. The deal's activity timeline records the automated transitions and attributes them to the Private App:
+
+![HubSpot deal record showing the activity log of automated stage moves](./screenshots/hubspot-deal-record.png)
+
+### Setup
+
+Create a HubSpot Private App with contacts + deals read/write scopes:
+
+![Upwork Pipeline Sync Private App overview in HubSpot](./screenshots/hubspot-private-app.png)
+
+![The four CRM scopes granted to the Private App](./screenshots/hubspot-private-app-scopes.png)
+
+Then run `System Tools > Setup HubSpot Access Token`, build a deal pipeline with the four stages above, and add `HubSpot_Pipeline_ID` plus `HubSpot_Stage_Proposal_Sent` / `_Reply_Received` / `_Interview` / `_Hired` rows to the Settings sheet.
 
 ---
 
@@ -157,7 +171,7 @@ No CSV exports required after initial setup.
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Google_Sheets_Sysyem.png)
+![Preview](./screenshots/Google_Sheets_System.png)
 
 - **Google Sheets:** operational data entry and formula layer
 - **Google Apps Script:** automation, AI integration, session management
@@ -169,7 +183,7 @@ No CSV exports required after initial setup.
 <!-- ===================== -->
 <!--        PREVIEW        -->
 <!-- ===================== -->
-![Preview](./Excel_System.png)
+![Preview](./screenshots/Excel_System.png)
 
 ---
 
@@ -202,7 +216,11 @@ Upwork-Acquisition-Pipeline/
     ├── Proposal_Analysis_Results.png
     ├── Complexity_Breakdown_Results.png
     ├── Google_Sheets_System.png
-    └── Excel_System.png
+    ├── Excel_System.png
+    ├── hubspot-deal-pipeline.png
+    ├── hubspot-deal-record.png
+    ├── hubspot-private-app.png
+    └── hubspot-private-app-scopes.png
 ```
 
 ---
