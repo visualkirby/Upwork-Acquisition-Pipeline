@@ -105,8 +105,8 @@ function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
   // name/describe their portfolio projects however they want and no fixed
   // keyword scheme can generalize across that. Called from the thin client
   // (RUN_JOB_CLASSIFICATION, 11_Job_Classifier.gs) instead of live in-sheet,
-  // since Proposal_Generator's Job_Title/Description arrive via a FILTER
-  // pull that never fires an edit event to recompute a formula against.
+  // since Proposal_Generator's Job_Title/Description arrive via lookup
+  // formulas that never fire an edit event to recompute against.
 
   return result;
 }
@@ -210,62 +210,74 @@ function colLetter_(n) {
 }
 
 /**
- * Proposal_Generator's raw-data columns (Job_Title, Description, Budget,
- * etc.) auto-populate from Job_Scoring wherever Final_Decision="APPLY" --
- * same FILTER-pull precedent as buildJobScoringPullFormulas, just one
- * pipeline stage further along. Tool_Detected is excluded here on purpose --
- * it's computed fresh in this sheet by buildProposalGeneratorFormulas above,
- * not pulled. Job_Type, Portfolio_Project, and the template/bid fields are
- * excluded too -- those are filled later by the RUN_JOB_CLASSIFICATION /
- * RUN_AI_PROPOSALS batch actions, not by this pull.
- * Additional_Questions is excluded too -- it flows the OPPOSITE direction
- * from everything else here (see buildDiscoveryIdLookup_ below): it's only
- * knowable at this stage (Upwork only shows a job's extra application
- * questions on the submission page), so it's a manual field in this sheet,
- * looked up backwards into Job_Scoring/Job_Discovery instead of pulled
- * forward into it.
+ * Proposal_Generator rows are stable: Discovery_ID and Date are static
+ * values the client script writes once, when a job first scores APPLY
+ * (syncProposalGenerator_, 28_Proposal_Sync.gs), and a row is never
+ * reordered or removed after that. Every other raw-data column is a per-row
+ * lookup keyed on that row's own Discovery_ID, so it still updates live
+ * from Job_Scoring.
+ *
+ * This replaced a FILTER(Final_Decision="APPLY") spill. The spill reordered
+ * whenever the APPLY set changed (job age, Settings caps, Connects balance),
+ * while the typed columns beside it (Job_Type, bids, Proposal_Status,
+ * AI_Generated_Proposal) stayed put, so typed data landed on the wrong job.
+ *
+ * Tool_Detected is excluded on purpose -- buildProposalGeneratorFormulas
+ * above computes it fresh in this sheet. Additional_Questions is excluded
+ * too: it flows the opposite direction (see buildDiscoveryIdLookup_ below).
  */
-function buildProposalGeneratorPullFormulas(jobScoringHeaders, proposalGeneratorHeaders) {
-  var fieldPairs = [
-    ['Discovery_ID', 'Discovery_ID'],
-    ['Date', 'Proposal_Generator_Date'],
-    ['Job_Title', 'Job_Title'],
-    ['Client_Name', 'Client_Name'],
-    ['Description', 'Description'],
-    ['Job_Link', 'Job_Link'],
-    ['Keyword_Search', 'Keyword_Search'],
-    ['Connects_Required', 'Connects_Required'],
-    ['Proposal_Count', 'Proposal_Count'],
-    ['Budget', 'Budget']
+function buildProposalGeneratorLookupFormulas(jobScoringHeaders, proposalGeneratorHeaders) {
+  var fields = [
+    'Job_Title', 'Client_Name', 'Description', 'Job_Link', 'Keyword_Search',
+    'Connects_Required', 'Proposal_Count', 'Budget'
   ];
+  var ownIdCol = proposalGeneratorHeaders.indexOf('Discovery_ID') + 1;
+  if (ownIdCol <= 0) return [];
 
-  return buildFilterPull_(
-    fieldPairs, 'Job_Scoring', jobScoringHeaders, proposalGeneratorHeaders,
-    'Final_Decision', 'APPLY'
-  );
+  return fields
+    .map(function (name) {
+      var col     = proposalGeneratorHeaders.indexOf(name) + 1;
+      var formula = col > 0 ? buildDiscoveryIdLookup_(ownIdCol, 'Job_Scoring', jobScoringHeaders, name) : null;
+      return formula ? { col: col, formula: formula } : null;
+    })
+    .filter(function (e) { return e; });
 }
 
 /**
- * Additional_Questions travels backwards through the pipeline: it's a manual
- * field in Proposal_Generator (only knowable once the freelancer is on
- * Upwork's submission page), looked up into Job_Scoring and Job_Discovery so
- * the earlier stages can still show it for reference. A VLOOKUP keyed on
- * Discovery_ID, not a FILTER -- this is a one-row-to-one-row match, not a
- * filtered subset, and Discovery_ID is guaranteed column A in all three
- * sheets. IFERROR covers rows with no matching Discovery_ID yet (job hasn't
- * reached that stage) or no value entered.
+ * One-row-to-one-row lookup keyed on Discovery_ID. Used for the backwards
+ * Additional_Questions flow (Proposal_Generator -> Job_Scoring ->
+ * Job_Discovery), Job_Scoring's Proposal_Generator_Date, and every
+ * Proposal_Generator raw-data column.
+ *
+ * INDEX/MATCH over two single columns, not VLOOKUP over the whole sheet:
+ * Proposal_Generator looks up into Job_Scoring and Job_Scoring looks back
+ * into Proposal_Generator, so a whole-sheet range on both sides would loop
+ * through each other and Sheets would flag a circular dependency. IFERROR
+ * covers rows whose job hasn't reached the source sheet yet.
  */
 function buildDiscoveryIdLookup_(ownDiscoveryIdCol, sourceSheetName, sourceHeaders, sourceValueHeader) {
   var idIdx  = sourceHeaders.indexOf('Discovery_ID');
   var valIdx = sourceHeaders.indexOf(sourceValueHeader);
   if (idIdx < 0 || valIdx < 0 || ownDiscoveryIdCol <= 0) return null;
 
-  var ownIdL   = colLetter_(ownDiscoveryIdCol);
-  var lastColL = colLetter_(sourceHeaders.length);
-  var offset   = valIdx - idIdx + 1;
+  var ownIdL = colLetter_(ownDiscoveryIdCol);
+  var srcIdL = colLetter_(idIdx + 1);
+  var valL   = colLetter_(valIdx + 1);
 
-  return '=IF(' + ownIdL + '2="","",IFERROR(VLOOKUP(' + ownIdL + '2,' +
-    sourceSheetName + '!$A:$' + lastColL + ',' + offset + ',FALSE),""))';
+  return '=IF($' + ownIdL + '2="","",IFERROR(INDEX(' + sourceSheetName + '!$' + valL + ':$' + valL +
+    ',MATCH($' + ownIdL + '2,' + sourceSheetName + '!$' + srcIdL + ':$' + srcIdL + ',0)),""))';
+}
+
+// Proposal_Generator_Date -- the day the job first landed in
+// Proposal_Generator, read from that sheet's static Date column. It used to
+// be IF(Final_Decision="APPLY",TODAY(),""), which re-dated itself every day.
+function buildJobScoringProposalDateLookup(proposalGeneratorHeaders, jobScoringHeaders) {
+  var ownCol  = jobScoringHeaders.indexOf('Discovery_ID') + 1;
+  var dateCol = jobScoringHeaders.indexOf('Proposal_Generator_Date') + 1;
+  if (ownCol <= 0 || dateCol <= 0) return null;
+
+  var formula = buildDiscoveryIdLookup_(ownCol, 'Proposal_Generator', proposalGeneratorHeaders, 'Date');
+  return formula ? { col: dateCol, formula: formula } : null;
 }
 
 function buildJobScoringAdditionalQuestionsLookup(proposalGeneratorHeaders, jobScoringHeaders) {
@@ -287,9 +299,8 @@ function buildJobDiscoveryAdditionalQuestionsLookup(jobScoringHeaders, jobDiscov
 }
 
 /**
- * Generic FILTER-pull builder shared by buildJobScoringPullFormulas and
- * buildProposalGeneratorPullFormulas. fieldPairs is [targetHeader,
- * sourceHeader] tuples in target-sheet column order. Contiguous runs of
+ * Generic FILTER-pull builder used by buildJobScoringPullFormulas.
+ * fieldPairs is [targetHeader, sourceHeader] tuples in target-sheet column order. Contiguous runs of
  * target columns become one combined-array FILTER (matches the proven
  * sheet's own pattern of several separate FILTER calls rather than one
  * giant array spanning the whole row) -- keeps each formula's column

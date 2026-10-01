@@ -134,6 +134,10 @@ function job_saveEntry(data) {
     colorDuplicateJobLinks();
   }
 
+  // Script writes never fire handleEdit, so the Proposal_Generator sync its
+  // Job_Discovery block runs has to happen here too.
+  syncProposalGenerator_(ss);
+
   handleSessionHalfwayReached_(ss);
   var sessionComplete = handleSessionYieldReached_(ss);
 

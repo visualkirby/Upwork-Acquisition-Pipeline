@@ -135,23 +135,26 @@ function END_SESSION() {
     ? 'YES -- yield ' + sessionYield + '/' + YIELD_TARGET + ' (below target)'
     : 'No -- yield '  + sessionYield + '/' + YIELD_TARGET;
 
+  // APPLY jobs still waiting on a decision: no Proposal_Generator row yet,
+  // or a row with Proposal_Status blank or Ready.
   var scoringSheet    = ss.getSheetByName('Job_Scoring');
   var applyNoProposal = 0;
 
   if (scoringSheet && scoringSheet.getLastRow() > 1) {
     var jsMap         = getHeaderMap_(scoringSheet);
     var jsDecisionCol = getCol_(jsMap, ['Final_Decision']);
-    var jsPropDateCol = getCol_(jsMap, ['Proposal_Generator_Date']);
+    var jsIdCol       = getCol_(jsMap, ['Discovery_ID']);
+    var statusById    = getProposalStatusById_(ss);
 
-    if (jsDecisionCol && jsPropDateCol) {
+    if (jsDecisionCol && jsIdCol) {
       var jsData = scoringSheet
         .getRange(2, 1, scoringSheet.getLastRow() - 1, scoringSheet.getLastColumn())
         .getValues();
 
       for (var i = 0; i < jsData.length; i++) {
         var decision = String(jsData[i][jsDecisionCol - 1]).trim();
-        var propDate = jsData[i][jsPropDateCol - 1];
-        if (decision === 'APPLY' && (propDate === '' || propDate === null)) {
+        var pgStatus0 = statusById[String(jsData[i][jsIdCol - 1]).trim()] || '';
+        if (decision === 'APPLY' && pgStatus0 !== 'Sent' && pgStatus0 !== 'Skip') {
           applyNoProposal++;
         }
       }
@@ -309,4 +312,23 @@ function END_SESSION() {
     (logSheet ? 'Log written to Session_Log.' : 'Session_Log sheet not found -- log not saved.');
 
   ui.alert(runLog);
+}
+
+// { Discovery_ID: Proposal_Status } for every Proposal_Generator row.
+function getProposalStatusById_(ss) {
+  var pgSheet = ss.getSheetByName('Proposal_Generator');
+  var out     = {};
+  if (!pgSheet || pgSheet.getLastRow() < 2) return out;
+
+  var pgMap     = getHeaderMap_(pgSheet);
+  var idCol     = getCol_(pgMap, ['Discovery_ID']);
+  var statusCol = getCol_(pgMap, ['Proposal_Status']);
+  if (!idCol || !statusCol) return out;
+
+  var data = pgSheet.getRange(2, 1, pgSheet.getLastRow() - 1, pgSheet.getLastColumn()).getValues();
+  data.forEach(function (r) {
+    var id = String(r[idCol - 1]).trim();
+    if (id) out[id] = String(r[statusCol - 1]).trim();
+  });
+  return out;
 }

@@ -113,14 +113,30 @@ function REPAIR_FORMULAS() {
 
   if (pgSheet.getLastRow() >= 2) {
     var pgHeaders = pgSheet.getRange(1, 1, 1, pgSheet.getLastColumn()).getValues()[0];
-    applyProposalGeneratorPullFormula_(pgSheet, pgHeaders);
+    var pgMigrated = applyProposalGeneratorLookupFormulas_(pgSheet, pgHeaders);
     applyProposalGeneratorFormulas_(pgSheet, pgHeaders);
     applyProposalGeneratorValidation_(pgSheet, pgHeaders);
     var pgMap = getHeaderMap_(pgSheet);
     copyRowDown_(pgSheet, [
       getCol_(pgMap, ['Tool_Detected'])
     ]);
-    repaired.push('Proposal_Generator (Job_Scoring pull, Tool_Detected) -- run System Tools > Run Job Classification afterward to (re)fill Portfolio_Project, which is script-computed now instead of a formula');
+    // Migration clears Job_Scoring's Proposal_Generator_Date to break a
+    // formula loop with the old spill, so the lookup goes back on here.
+    applyJobScoringProposalDateLookup_(jsSheet,
+      jsSheet.getRange(1, 1, 1, jsSheet.getLastColumn()).getValues()[0]);
+    if (pgMigrated > 0) {
+      repaired.push('Proposal_Generator (moved ' + pgMigrated + ' row' + (pgMigrated === 1 ? '' : 's') +
+        ' to fixed rows keyed by Discovery_ID; their Date is now the sent/skip date, or today if neither)');
+    }
+    repaired.push('Proposal_Generator (Discovery_ID lookups, Tool_Detected) -- run System Tools > Run Job Classification afterward to (re)fill Portfolio_Project, which is script-computed now instead of a formula');
+  }
+
+  // Appends a row for any APPLY job Proposal_Generator doesn't have yet and
+  // tags rows whose job is no longer APPLY (28_Proposal_Sync.gs).
+  var pgSync = syncProposalGenerator_(ss);
+  if (pgSync.added.length > 0 || pgSync.flagged > 0) {
+    repaired.push('Proposal_Generator sync (' + pgSync.added.length + ' APPLY job' + (pgSync.added.length === 1 ? '' : 's') +
+      ' added, ' + pgSync.flagged + ' row' + (pgSync.flagged === 1 ? '' : 's') + ' tagged "Not APPLY now" in Notes)');
   }
 
   // Proposal_Tracker/Contract_Tracker/Milestone_Tracker only need row 1 --

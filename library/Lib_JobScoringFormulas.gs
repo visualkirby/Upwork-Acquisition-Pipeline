@@ -56,7 +56,6 @@ function buildJobScoringFormulas(headers) {
   var connAffordL     = L('Connects_Affordability');
   var totalScoreL     = L('Total_Score');
   var notesL          = L('AI_Fit_Notes');
-  var finalDecisionL  = L('Final_Decision');
 
   // Current_Age_Days -- anchored on Date_Scored (Job_Scoring's own
   // re-entry point), not Date_Found.
@@ -253,16 +252,9 @@ function buildJobScoringFormulas(headers) {
       'TRUE,"SKIP")))';
   }
 
-  // Proposal_Generator_Date -- flips to today's date the moment Final_Decision
-  // reads APPLY. Formula-driven (not onEdit-stamped) so it works with a row
-  // that only ever exists because a FILTER pulled it in from Job_Discovery --
-  // FILTER-spilled cells never fire onEdit, so nothing else would ever set this.
-  var proposalGenDateIdx = idx('Proposal_Generator_Date');
-  if (proposalGenDateIdx >= 0 && finalDecisionL) {
-    result.proposalGeneratorDateCol = proposalGenDateIdx + 1;
-    result.proposalGeneratorDateFormula =
-      '=IF(' + finalDecisionL + '2="","",IF(' + finalDecisionL + '2="APPLY",TODAY(),""))';
-  }
+  // Proposal_Generator_Date is not built here. It's a Discovery_ID lookup of
+  // Proposal_Generator's static Date (buildJobScoringProposalDateLookup in
+  // Lib_WizardFormulas.gs), applied once all three pipeline sheets exist.
 
   return result;
 }

@@ -364,7 +364,7 @@ function ensurePipelineSheets_(ss, starterKeywords) {
         applyJobScoringValidation_(sheet, def.headers);
         applyJobScoringConditionalFormatting_(sheet, def.headers);
       } else if (def.name === 'Proposal_Generator') {
-        applyProposalGeneratorPullFormula_(sheet, def.headers);
+        applyProposalGeneratorLookupFormulas_(sheet, def.headers);
         applyProposalGeneratorFormulas_(sheet, def.headers);
         applyProposalGeneratorValidation_(sheet, def.headers);
       } else if (def.name === 'Proposal_Tracker') {
@@ -390,8 +390,11 @@ function ensurePipelineSheets_(ss, starterKeywords) {
   var jsSheetForLookup = ss.getSheetByName('Job_Scoring');
   var pgSheetForLookup = ss.getSheetByName('Proposal_Generator');
   if (jdSheetForLookup && jsSheetForLookup && pgSheetForLookup) {
-    applyJobScoringAdditionalQuestionsLookup_(jsSheetForLookup,
-      jsSheetForLookup.getRange(1, 1, 1, jsSheetForLookup.getLastColumn()).getValues()[0]);
+    var jsHeadersForLookup = jsSheetForLookup.getRange(1, 1, 1, jsSheetForLookup.getLastColumn()).getValues()[0];
+    applyJobScoringAdditionalQuestionsLookup_(jsSheetForLookup, jsHeadersForLookup);
+    // Proposal_Generator_Date reads Proposal_Generator's static Date, so it
+    // needs that sheet's headers too.
+    applyJobScoringProposalDateLookup_(jsSheetForLookup, jsHeadersForLookup);
     applyJobDiscoveryAdditionalQuestionsLookup_(jdSheetForLookup,
       jdSheetForLookup.getRange(1, 1, 1, jdSheetForLookup.getLastColumn()).getValues()[0]);
   }
@@ -468,7 +471,7 @@ function applyJobScoringFormulas_(sheet, headers) {
     'currentAgeDays', 'effortLevel', 'scopeRating', 'portfolioMatch', 'estimatedHours',
     'estimatedHourlyRate', 'budgetScore', 'keywordScore', 'toolScore', 'experienceScore',
     'freshnessScore', 'competitionScore', 'clientHistoryScore', 'scopeScore', 'portfolioScore',
-    'connectsAffordability', 'totalScore', 'scorePerConnect', 'finalDecision', 'proposalGeneratorDate'
+    'connectsAffordability', 'totalScore', 'scorePerConnect', 'finalDecision'
   ];
 
   fields.forEach(function (field) {
@@ -513,26 +516,28 @@ function forceDiscoveryIdNumberFormat_(sheet, headers, lastRow) {
   }
 }
 
-// Same pattern as applyJobScoringPullFormula_, one stage further down the
-// pipeline: Proposal_Generator's raw-data columns pull from Job_Scoring
-// wherever Final_Decision="APPLY".
-function applyProposalGeneratorPullFormula_(sheet, headers) {
+// Proposal_Generator's raw-data columns are per-row lookups keyed on each
+// row's static Discovery_ID (see FFLib.buildProposalGeneratorLookupFormulas
+// and 28_Proposal_Sync.gs). A sheet still on the old FILTER spill is
+// migrated to static rows first, keeping today's row order.
+function applyProposalGeneratorLookupFormulas_(sheet, headers) {
   var jsSheet = sheet.getParent().getSheetByName('Job_Scoring');
-  if (!jsSheet) return;
+  var idCol   = headers.indexOf('Discovery_ID') + 1;
+  if (!jsSheet || idCol <= 0) return 0;
   var jsHeaders = jsSheet.getRange(1, 1, 1, jsSheet.getLastColumn()).getValues()[0];
 
-  var groups = FFLib.buildProposalGeneratorPullFormulas(jsHeaders, headers);
-  if (groups.length === 0) return;
+  var migrated = migrateProposalGeneratorToStaticRows_(sheet, headers);
 
-  var lastRow = Math.max(sheet.getLastRow(), FORMULA_PREFILL_ROWS + 1);
-  groups.forEach(function (g) {
-    sheet.getRange(2, g.col, lastRow - 1, g.width).clearContent();
-    sheet.getRange(2, g.col).setFormula(g.formula);
+  var lookups = FFLib.buildProposalGeneratorLookupFormulas(jsHeaders, headers);
+  var lastRow = Math.max(getLastProposalGeneratorRow_(sheet, idCol), FORMULA_PREFILL_ROWS + 1);
+  lookups.forEach(function (l) {
+    sheet.getRange(2, l.col, lastRow - 1, 1).setFormula(l.formula);
   });
   forceDiscoveryIdNumberFormat_(sheet, headers, lastRow);
+  return migrated;
 }
 
-// Additional_Questions flows backwards -- a per-row VLOOKUP formula keyed on
+// Additional_Questions flows backwards -- a per-row lookup formula keyed on
 // Discovery_ID, prefilled down FORMULA_PREFILL_ROWS same as any other
 // per-row formula (not a FILTER spill, so no clearContent/single-cell
 // pattern needed here).
@@ -544,6 +549,19 @@ function applyJobScoringAdditionalQuestionsLookup_(sheet, headers) {
   var result = FFLib.buildJobScoringAdditionalQuestionsLookup(pgHeaders, headers);
   if (result) {
     sheet.getRange(2, result.col, FORMULA_PREFILL_ROWS, 1).setFormula(result.formula);
+  }
+}
+
+function applyJobScoringProposalDateLookup_(sheet, headers) {
+  var pgSheet = sheet.getParent().getSheetByName('Proposal_Generator');
+  if (!pgSheet) return;
+  var pgHeaders = pgSheet.getRange(1, 1, 1, pgSheet.getLastColumn()).getValues()[0];
+
+  var result = FFLib.buildJobScoringProposalDateLookup(pgHeaders, headers);
+  if (result) {
+    sheet.getRange(2, result.col, FORMULA_PREFILL_ROWS, 1)
+      .setFormula(result.formula)
+      .setNumberFormat('m/d/yyyy');
   }
 }
 

@@ -9,6 +9,8 @@
  *                     tracking picks up any keyword added there, however
  *                     it got added
  *   Job_Scoring    -- date stamp on title entry, APPLY auto-proposal
+ *   Job_Discovery/Job_Scoring/Connects_Helper/Settings -- syncProposalGenerator_
+ *                     (28_Proposal_Sync.gs), since all four can change Final_Decision
  *   Connects_Helper -- replenishment/return accumulation + date stamp, both of
  *                      which also add back into Current_Connect_Balance
  *   Proposal_Tracker -- Viewed/Interview/Hired feed Connects_Helper's MTD_Replies/
@@ -163,6 +165,9 @@ function handleEdit(e) {
       if (newKeywordJD) recomputeKeywordStrategyActualCount_(ss, newKeywordJD);
     }
 
+    // Any Job_Discovery edit can move a job into or out of APPLY through
+    // Job_Scoring's recalculation, which never fires onEdit on its own.
+    syncProposalGenerator_(ss);
     return;
   }
 
@@ -173,7 +178,6 @@ function handleEdit(e) {
     var jobTitleColJS      = getCol_(map, ["Job_Title"]);
     var dateScoredCol      = getCol_(map, ["Date_Scored"]);
     var finalDecisionCol   = getCol_(map, ["Final_Decision"]);
-    var proposalGenDateCol = getCol_(map, ["Proposal_Generator_Date"]);
     var descColJS          = getCol_(map, ["Description"]);
     var aiFitNotesColJS    = getCol_(map, ["AI_Fit_Notes"]);
 
@@ -195,13 +199,17 @@ function handleEdit(e) {
       }
     }
 
-    if (finalDecisionCol && proposalGenDateCol) {
-      var finalDecision       = sheet.getRange(row, finalDecisionCol).getValue();
-      var proposalGenDateCell = sheet.getRange(row, proposalGenDateCol);
+    // A job reaching APPLY gets its Proposal_Generator row from
+    // syncProposalGenerator_ (28_Proposal_Sync.gs). Only a row appended by
+    // THIS sync gets the auto-drafted proposal, so re-editing a job that was
+    // already in Proposal_Generator never redrafts over existing work.
+    if (finalDecisionCol) {
+      var finalDecision = sheet.getRange(row, finalDecisionCol).getValue();
+      var jsIdColEdit   = getCol_(map, ["Discovery_ID"]);
+      var editedId      = jsIdColEdit ? String(sheet.getRange(row, jsIdColEdit).getValue()).trim() : "";
+      var syncResult    = syncProposalGenerator_(ss);
 
-      if (finalDecision === "APPLY" && proposalGenDateCell.getValue() === "") {
-        proposalGenDateCell.setValue(new Date());
-
+      if (finalDecision === "APPLY" && editedId && syncResult.added.indexOf(editedId) >= 0) {
         showWalkthroughOnce_(
           "FF_WALKTHROUGH_JOB_SCORING_SEEN",
           "First job scored APPLY!",
@@ -228,50 +236,38 @@ function handleEdit(e) {
         var jtCategories = getJobTypeCategories_(getProposalTemplateRows_());
         var aiJobType    = FFLib.getJobType(aiDescription, aiJobTitle, jtApiKey, jtCategories);
 
-        if (aiJobTitle && aiDescription) {
-          var pgSheet = ss.getSheetByName("Proposal_Generator");
-          if (pgSheet && pgSheet.getLastRow() > 1) {
-            var pgMap2         = getHeaderMap_(pgSheet);
-            var pgTitleCol2    = getCol_(pgMap2, ["Job_Title"]);
-            var pgAiCol2       = getCol_(pgMap2, ["AI_Generated_Proposal"]);
-            var pgPortfolioCol2 = getCol_(pgMap2, ["Portfolio_Project"]);
+        var pgSheet = ss.getSheetByName("Proposal_Generator");
+        if (aiJobTitle && aiDescription && pgSheet) {
+          var pgMap2          = getHeaderMap_(pgSheet);
+          var pgAiCol2        = getCol_(pgMap2, ["AI_Generated_Proposal"]);
+          var pgPortfolioCol2 = getCol_(pgMap2, ["Portfolio_Project"]);
+          var pgRow           = findProposalGeneratorRowByDiscoveryId_(pgSheet, pgMap2, editedId);
 
-            if (pgTitleCol2 && pgAiCol2) {
-              var pgData = pgSheet
-                .getRange(2, 1, pgSheet.getLastRow() - 1, pgSheet.getLastColumn())
-                .getValues();
-
-              for (var p = 0; p < pgData.length; p++) {
-                if (String(pgData[p][pgTitleCol2 - 1]).trim() === String(aiJobTitle).trim()) {
-                  var pgRow = p + 2;
-                  pgSheet.getRange(pgRow, pgAiCol2).setValue("Generating proposal...");
-                  var aiProposalText;
-                  try {
-                    var autoApiKey          = getApiKey_();
-                    var autoSettings        = getSettings_();
-                    var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
-                    var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
-                    var autoProposalLength   = autoSettings['Proposal_Length'] || 'Medium';
-                    // Usually blank at APPLY time (RUN_JOB_CLASSIFICATION picks
-                    // the project later), in which case generateAiProposal
-                    // behaves as before; passed through for the case where a
-                    // row was already classified when the proposal regenerates.
-                    var autoMandatoryProject = pgPortfolioCol2
-                      ? String(pgSheet.getRange(pgRow, pgPortfolioCol2).getValue()).trim() : "";
-                    aiProposalText = FFLib.generateAiProposal(
-                      aiJobTitle, aiDescription, aiTool,
-                      aiJobType, aiProposalCount, aiBudget, aiKeyword,
-                      autoApiKey, autoPortfolioContext, autoFreelancerName, autoProposalLength,
-                      autoMandatoryProject
-                    );
-                  } catch (err) {
-                    aiProposalText = err.message;
-                  }
-                  pgSheet.getRange(pgRow, pgAiCol2).setValue(aiProposalText);
-                  break;
-                }
-              }
+          if (pgRow && pgAiCol2) {
+            pgSheet.getRange(pgRow, pgAiCol2).setValue("Generating proposal...");
+            var aiProposalText;
+            try {
+              var autoApiKey           = getApiKey_();
+              var autoSettings         = getSettings_();
+              var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
+              var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
+              var autoProposalLength   = autoSettings['Proposal_Length'] || 'Medium';
+              // Usually blank at APPLY time (RUN_JOB_CLASSIFICATION picks
+              // the project later), in which case generateAiProposal
+              // behaves as before; passed through for the case where a
+              // row was already classified when the proposal regenerates.
+              var autoMandatoryProject = pgPortfolioCol2
+                ? String(pgSheet.getRange(pgRow, pgPortfolioCol2).getValue()).trim() : "";
+              aiProposalText = FFLib.generateAiProposal(
+                aiJobTitle, aiDescription, aiTool,
+                aiJobType, aiProposalCount, aiBudget, aiKeyword,
+                autoApiKey, autoPortfolioContext, autoFreelancerName, autoProposalLength,
+                autoMandatoryProject
+              );
+            } catch (err) {
+              aiProposalText = err.message;
             }
+            pgSheet.getRange(pgRow, pgAiCol2).setValue(aiProposalText);
           }
         }
       }
@@ -338,6 +334,18 @@ function handleEdit(e) {
         }
       }
     }
+    // Current_Connect_Balance feeds Connects_Affordability, which can move a
+    // job into or out of APPLY.
+    syncProposalGenerator_(ss);
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // SETTINGS
+  // Apply_* / Hold_* thresholds and Primary_Tools feed Final_Decision.
+  // ----------------------------------------------------------
+  if (sheetName === "Settings") {
+    syncProposalGenerator_(ss);
     return;
   }
 
@@ -613,18 +621,19 @@ function computeBidRecommendation_(ss, sheet, row, map) {
   var propCountVal = propCountCol ? sheet.getRange(row, propCountCol).getValue() : "";
   var titleVal     = titleCol2    ? sheet.getRange(row, titleCol2).getValue()    : "";
 
+  var idVal          = String(getCellValue_(sheet, row, map, ["Discovery_ID"])).trim();
   var totalScoreVal  = "";
   var scoringSheet2  = ss.getSheetByName("Job_Scoring");
-  if (scoringSheet2 && titleVal) {
+  if (scoringSheet2 && idVal) {
     var jsMap2      = getHeaderMap_(scoringSheet2);
-    var jsTitleCol2 = getCol_(jsMap2, ["Job_Title"]);
+    var jsIdCol2    = getCol_(jsMap2, ["Discovery_ID"]);
     var jsScoreCol2 = getCol_(jsMap2, ["Total_Score"]);
-    if (jsTitleCol2 && jsScoreCol2 && scoringSheet2.getLastRow() > 1) {
+    if (jsIdCol2 && jsScoreCol2 && scoringSheet2.getLastRow() > 1) {
       var jsRows = scoringSheet2
         .getRange(2, 1, scoringSheet2.getLastRow() - 1, scoringSheet2.getLastColumn())
         .getValues();
       for (var s = 0; s < jsRows.length; s++) {
-        if (String(jsRows[s][jsTitleCol2 - 1]).trim() === String(titleVal).trim()) {
+        if (String(jsRows[s][jsIdCol2 - 1]).trim() === idVal) {
           totalScoreVal = jsRows[s][jsScoreCol2 - 1];
           break;
         }
@@ -822,8 +831,7 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var connectsUsed     = totalConnectsSpent !== "" ? totalConnectsSpent
                          : (boostConnects !== "" ? (Number(boostConnects) + 0) : "");
 
-  var jsJobTitleCol      = getCol_(jsMap, ["Job_Title"]);
-  var jsClientCol        = getCol_(jsMap, ["Client_Name", "Client Name"]);
+  var jsIdCol            = getCol_(jsMap, ["Discovery_ID"]);
   var jsKeywordCol       = getCol_(jsMap, ["Keyword_Search"]);
   var jsDaysCol          = getCol_(jsMap, ["Days_Since_Posted"]);
   var jsHoursCol         = getCol_(jsMap, ["Hours_Since_Posted"]);
@@ -834,13 +842,9 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var jsDateScoredCol    = getCol_(jsMap, ["Date_Scored"]);
 
   for (var i = 0; i < scoringData.length; i++) {
-    var rowTitle  = jsJobTitleCol ? scoringData[i][jsJobTitleCol - 1] : "";
-    var rowClient = jsClientCol   ? scoringData[i][jsClientCol   - 1] : "";
+    var rowId = jsIdCol ? String(scoringData[i][jsIdCol - 1]).trim() : "";
 
-    var titleMatch  = rowTitle === jobTitle;
-    var clientMatch = !clientName || !rowClient || rowClient === clientName;
-
-    if (titleMatch && clientMatch) {
+    if (rowId && rowId === String(discoveryId).trim()) {
       keywordSearch    = jsKeywordCol       ? scoringData[i][jsKeywordCol       - 1] : "";
       daysSincePosted  = jsDaysCol          ? scoringData[i][jsDaysCol          - 1] : "";
       hoursSincePosted = jsHoursCol         ? scoringData[i][jsHoursCol         - 1] : "";
@@ -876,7 +880,21 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var sentDate    = new Date();
   var appliedDate = dateInGenerator || sentDate;
 
+  // Keyed on Discovery_ID when the row has one. The title/client/template
+  // match below is only the fallback for a row without an ID.
   function existsInProposalTracker_() {
+    var tIdCol = getCol_(ptMap, ["Discovery_ID"]);
+    var ownId  = String(discoveryId).trim();
+    if (tIdCol && ownId) {
+      var idLastRow = tracker.getLastRow();
+      if (idLastRow < 2) return false;
+      var idValues = tracker.getRange(2, tIdCol, idLastRow - 1, 1).getValues();
+      for (var k = 0; k < idValues.length; k++) {
+        if (String(idValues[k][0]).trim() === ownId) return true;
+      }
+      return false;
+    }
+
     var tJobCol      = getCol_(ptMap, ["Job_Title"]);
     var tClientCol   = getCol_(ptMap, ["Client_Name", "Client Name"]);
     var tTemplateCol = getCol_(ptMap, ["Template_Used", "Recommended_Template"]);
@@ -987,6 +1005,10 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   }
 
   proposalSentDateCell.setValue(sentDate);
+
+  // The Connects spent above lower Current_Connect_Balance, which can push
+  // other APPLY jobs to Cannot Afford.
+  syncProposalGenerator_(ss);
 
   showWalkthroughOnce_(
     "FF_WALKTHROUGH_PROPOSAL_SENT_SEEN",

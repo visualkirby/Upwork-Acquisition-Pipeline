@@ -41,15 +41,16 @@ function RESET_TO_AFTER_SETUP() {
   // them, nothing to clear here directly.
 
   clearByHeaders_(ss, 'Proposal_Generator', [
-    'Job_Type', 'Recommended_Template', 'Hook_Version', 'CTA_Version',
+    'Discovery_ID', 'Date', 'Job_Type', 'Recommended_Template', 'Hook_Version', 'CTA_Version',
     'Bid_1st', 'Bid_2nd', 'Bid_3rd', 'Bid_4th', 'Boost_Connects', 'Total_Connects_Spent',
     'Bid_Recommendation', 'Additional_Questions', 'AI_Generated_Proposal', 'Additional_Answers',
     'Proposal_Status', 'Proposal_Sent_Date', 'Proposal_Skip_Date', 'Notes'
   ]);
-  // Discovery_ID/Date/Job_Title/Client_Name/Description/Job_Link/Keyword_Search/
-  // Connects_Required/Proposal_Count/Budget are a FILTER pull from Job_Scoring,
-  // and Tool_Detected/Portfolio_Project are formulas off that pull -- both
-  // self-empty once Job_Discovery above has nothing left for Job_Scoring to match.
+  // Discovery_ID/Date are static values written by syncProposalGenerator_
+  // (28_Proposal_Sync.gs), so they're cleared above. Job_Title/Client_Name/
+  // Description/Job_Link/Keyword_Search/Connects_Required/Proposal_Count/
+  // Budget/Tool_Detected are formulas keyed on Discovery_ID and empty out
+  // with it.
 
   // These sheets are entirely script-written rows (no formula/identity
   // column worth preserving), so a full clear is the right shape.

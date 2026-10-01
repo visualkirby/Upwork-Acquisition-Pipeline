@@ -5,8 +5,8 @@
  * additive, not a replacement. Direct cell edits still work exactly as
  * before and still fire handleEdit's automation.
  *
- * Proposal_Generator rows aren't created here (they're auto-pulled from
- * Job_Scoring's APPLY rows via a FILTER formula) -- this sidebar is a row
+ * Proposal_Generator rows aren't created here (syncProposalGenerator_ in
+ * 28_Proposal_Sync.gs appends one per Job_Scoring APPLY job) -- this sidebar is a row
  * picker + entry form for the sheet's manual fields only: Bid_1st-4th,
  * Boost_Connects, Additional_Questions, Proposal_Status, Notes. Since
  * script-driven setValue() writes never fire handleEdit, each save function
@@ -43,6 +43,7 @@ function LOG_PROPOSAL_BID() {
 // Job_Title, labeled with client name and current status for context.
 function proposal_getRows() {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  syncProposalGenerator_(ss);
   var sheet = ss.getSheetByName('Proposal_Generator');
   if (!sheet || sheet.getLastRow() < 2) return [];
 

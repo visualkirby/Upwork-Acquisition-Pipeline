@@ -9,9 +9,9 @@
  *   (FFLib.pickWeightedTemplate) for any row still missing one --
  *   including rows that already had a Job_Type from an earlier run.
  *   Also fills Portfolio_Project (FFLib.pickPortfolioProject) for any row
- *   still missing one -- same "batch-fill what the FILTER pull can't"
- *   reasoning as Job_Type: Job_Title/Description arrive via a live FILTER
- *   pull, which never fires an edit event, so nothing recomputes a formula
+ *   still missing one -- same "batch-fill what the lookups can't"
+ *   reasoning as Job_Type: Job_Title/Description arrive via live lookup
+ *   formulas, which never fire an edit event, so nothing recomputes a formula
  *   automatically the way Job_Discovery's Tool_Detected does. This is the
  *   catch-up pass for both.
  *   When it fills Portfolio_Project on a row for the first time, it also
