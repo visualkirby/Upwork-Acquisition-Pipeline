@@ -83,6 +83,67 @@ var GROUNDING_RULES_ =
   'Never state a price, rate, budget, timeline, or availability -- write [YOUR RATE], [TIMELINE], ' +
   'or [AVAILABILITY] where one is needed so the freelancer fills it in.';
 
+// Questions and instructions a client wrote into the job description for
+// applicants to answer in the proposal itself ("please answer these in your
+// proposal", "start your proposal with the word banana"). Job 119 on
+// 2026-10-01 had four of them and the draft answered none. Plain text
+// matching, not AI: sentences ending in "?" plus a list of instruction
+// phrases. Shown to the freelancer in Log Proposal Bid's Step 3 and handed
+// to both cover-letter generators as an explicit list, since a long
+// description gets cut before its closing questions reach the prompt.
+var DESCRIPTION_INSTRUCTION_RE_ = new RegExp(
+  '\\b(in your (proposal|cover letter|application|reply|response|bid)' +
+  '|please (answer|include|mention|describe|share|explain|list|tell)' +
+  '|(start|begin) (your )?(proposal|application|cover letter|reply) with' +
+  '|include the (word|phrase)' +
+  '|answer (the following|these|this|each)' +
+  '|when (you )?apply)\\b', 'i');
+
+function extractDescriptionQuestions(description) {
+  // Numbered/bulleted list markers ("1.", "2)", "- ") become breaks so
+  // "answer these: 1. X? 2. Y?" splits into the lead-in plus each question.
+  var text = String(description || '')
+    .replace(/\s+/g, ' ')
+    .replace(/(^|\s)(\d{1,2}[.)]|[-*•])\s+/g, '\n')
+    .trim();
+  if (!text) return [];
+
+  var seen = {};
+  return text.split(/(?<=[.?!:])\s+|\n+/)
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) {
+      if (s.length < 12) return false;
+      var hit = /\?$/.test(s) || DESCRIPTION_INSTRUCTION_RE_.test(s);
+      var key = s.toLowerCase();
+      if (!hit || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    })
+    .map(function (s) { return s.length > 300 ? s.substring(0, 300).trim() + '...' : s; })
+    .slice(0, 8);
+}
+
+// Prompt block for the cover-letter generators; empty when the description
+// asks nothing.
+function descriptionQuestionsBlock_(description) {
+  var qs = extractDescriptionQuestions(description);
+  if (qs.length === 0) return '';
+  // A softer "answer these inside the body" version lost to each template's
+  // fixed shape (3 paragraphs, no lists, end with one question) in a live
+  // test on job 119: the draft talked around all four questions and turned
+  // one of them back into its closing question. A labelled block after the
+  // letter is also how clients expect numbered questions answered.
+  return ' QUESTIONS AND INSTRUCTIONS IN THE JOB POST: ' +
+    qs.map(function (q, i) { return '(' + (i + 1) + ') ' + q; }).join(' ') +
+    ' The client asked applicants to respond to these. This overrides the length, no-list, and ' +
+    'closing-question rules above: after the proposal, add a blank line, then the heading ' +
+    '"Your questions:", then a numbered answer for each question that is a real request to ' +
+    'applicants, in the client\'s order, one or two sentences each. Skip lead-in lines like ' +
+    '"please answer these" and anything rhetorical. If an instruction is about the proposal ' +
+    'itself (such as a word to start with), follow it in the proposal instead of answering it. ' +
+    'Do not repeat a client question as your own closing question.';
+}
+
 // Deterministic check after generation: any dollar amount or number in the
 // draft that doesn't appear in the material the AI was given gets listed on
 // a warning line above the draft. Nothing is removed -- the freelancer
@@ -258,6 +319,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     'TOOL REQUESTED: ' + (toolDetected || 'not specified') + '. ' +
     'JOB TYPE: ' + (jobType || 'dashboard project') + '. ' +
     'JOB DESCRIPTION: ' + description.substring(0, 1200) +
+    descriptionQuestionsBlock_(description) +
     GROUNDING_RULES_;
 
   var payload = {
@@ -330,6 +392,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     'Budget: ' + (budget || 'not listed') + '. ' +
     'Found via keyword: ' + (keywordSearch || 'not noted') + '. ' +
     'Description: ' + String(description).substring(0, 1800) +
+    descriptionQuestionsBlock_(description) +
     GROUNDING_RULES_;
 
   var payload = {

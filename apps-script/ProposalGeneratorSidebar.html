@@ -115,6 +115,7 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="step-title">Additional Questions</div>
       <div class="step-desc">Optional. Only fill this in if the job listing asked additional screening questions.</div>
 
+      <div id="description-questions-box"></div>
       <div id="answers-box"></div>
 
       <label>Additional Questions</label>
@@ -170,6 +171,20 @@ function discoveryId() { return val('job-picker'); }
 function showRecommendation(text) {
   var box = document.getElementById('recommendation-box');
   box.innerHTML = text ? '<div class="info-box"><b>Current recommendation:</b> ' + text + '</div>' : '';
+}
+
+// Questions/instructions found in the job description. Display only: the
+// cover-letter draft already answers them, and Additional Questions stays
+// for Upwork's separate question boxes.
+function showDescriptionQuestions(list) {
+  var box = document.getElementById('description-questions-box');
+  if (!list || list.length === 0) { box.innerHTML = ''; return; }
+  var esc = function (s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+  box.innerHTML = '<div class="info-box"><b>The job description asks:</b><ul>' +
+    list.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') +
+    '</ul>The cover-letter draft answers these. Leave them out of Additional Questions below.</div>';
 }
 
 function showAnswers(text) {
@@ -231,6 +246,7 @@ function loadRow() {
       document.getElementById('notes').value = r.notes;
       showRecommendation(r.bidRecommendation);
       showAnswers(r.additionalAnswers);
+      showDescriptionQuestions(r.descriptionQuestions);
 
       document.getElementById('wizard').style.display = 'block';
       goToStep(1);

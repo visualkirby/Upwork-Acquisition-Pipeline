@@ -96,7 +96,10 @@ function proposal_getRowDetails(discoveryId) {
     additionalAnswers:   getCellValue_(sheet, row, map, ['Additional_Answers']),
     proposalStatus:      getCellValue_(sheet, row, map, ['Proposal_Status']),
     notes:               getCellValue_(sheet, row, map, ['Notes']),
-    bidRecommendation:   getCellValue_(sheet, row, map, ['Bid_Recommendation'])
+    bidRecommendation:   getCellValue_(sheet, row, map, ['Bid_Recommendation']),
+    // Questions the client wrote into the description itself (Step 3 shows
+    // them; the cover-letter draft answers them).
+    descriptionQuestions: FFLib.extractDescriptionQuestions(getCellValue_(sheet, row, map, ['Description']))
   };
 }
 
