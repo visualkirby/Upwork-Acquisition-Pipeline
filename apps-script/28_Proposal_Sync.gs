@@ -47,7 +47,19 @@ function syncProposalGenerator_(ss) {
   var jsIdCol     = getCol_(jsMap, ['Discovery_ID']);
   var jsDecCol    = getCol_(jsMap, ['Final_Decision']);
   var jsAffordCol = getCol_(jsMap, ['Connects_Affordability']);
+  var jsAgeCol    = getCol_(jsMap, ['Current_Age_Days']);
+  var jsPropCol   = getCol_(jsMap, ['Proposal_Count']);
   if (!jsIdCol || !jsDecCol) return result;
+
+  var settings  = getSettings_();
+  var capNumber = function (v) {
+    var n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  };
+  var caps = {
+    maxAge:   capNumber(settings['Apply_Max_Age_Days']),
+    maxProps: capNumber(settings['Apply_Max_Proposals'])
+  };
 
   var lock = LockService.getDocumentLock();
   lock.waitLock(30000);
@@ -63,7 +75,9 @@ function syncProposalGenerator_(ss) {
       var decision = String(r[jsDecCol - 1]).trim();
       decisionById[id] = {
         decision: decision,
-        afford:   jsAffordCol ? String(r[jsAffordCol - 1]).trim() : ''
+        afford:   jsAffordCol ? String(r[jsAffordCol - 1]).trim() : '',
+        age:      jsAgeCol ? r[jsAgeCol - 1] : '',
+        props:    jsPropCol ? r[jsPropCol - 1] : ''
       };
       if (decision === 'APPLY') applyIds.push(r[jsIdCol - 1]);
     });
@@ -78,7 +92,7 @@ function syncProposalGenerator_(ss) {
     });
 
     if (pgNotesCol && pgRowCount > 0) {
-      result.flagged = tagNotApplyRows_(pgSheet, pgIds, pgStatusCol, pgNotesCol, decisionById);
+      result.flagged = tagNotApplyRows_(pgSheet, pgIds, pgStatusCol, pgNotesCol, decisionById, caps);
     }
 
     var toAdd = applyIds.filter(function (id) { return !existing[String(id).trim()]; });
@@ -104,7 +118,11 @@ function syncProposalGenerator_(ss) {
 // Adds, updates, or clears each row's Not-APPLY tag in Notes, keeping
 // whatever the freelancer typed there. A blank Final_Decision (score still
 // recalculating) leaves the row alone. Returns how many rows carry a tag.
-function tagNotApplyRows_(pgSheet, pgIds, pgStatusCol, pgNotesCol, decisionById) {
+//
+// A job that already has a row keeps Final_Decision = APPLY past the age
+// and proposal caps (FFLib.buildJobScoringFormulas exempts it), so an
+// undecided row past a cap is tagged here instead.
+function tagNotApplyRows_(pgSheet, pgIds, pgStatusCol, pgNotesCol, decisionById, caps) {
   var count      = pgIds.length;
   var statuses   = pgStatusCol ? pgSheet.getRange(2, pgStatusCol, count, 1).getValues() : null;
   var notesRange = pgSheet.getRange(2, pgNotesCol, count, 1);
@@ -130,6 +148,16 @@ function tagNotApplyRows_(pgSheet, pgIds, pgStatusCol, pgNotesCol, decisionById)
       } else if (info.decision !== 'APPLY') {
         tag = NOT_APPLY_TAG_PREFIX_ + ' ' + info.decision +
           (info.afford === 'Cannot Afford' ? ', Cannot Afford' : '') + ']';
+      } else {
+        var reasons = [];
+        var age     = typeof info.age === 'number' ? info.age : parseFloat(info.age);
+        if (caps.maxAge !== null && !isNaN(age) && age > caps.maxAge) {
+          reasons.push('older than ' + caps.maxAge + ' days');
+        }
+        if (caps.maxProps !== null && FFLib.proposalCountFloor(info.props) >= caps.maxProps) {
+          reasons.push(info.props + ' proposals, cap ' + caps.maxProps);
+        }
+        if (reasons.length > 0) tag = NOT_APPLY_TAG_PREFIX_ + ' ' + reasons.join('; ') + ']';
       }
     }
 

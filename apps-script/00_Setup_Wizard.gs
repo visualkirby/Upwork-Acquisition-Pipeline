@@ -395,6 +395,10 @@ function ensurePipelineSheets_(ss, starterKeywords) {
     // Proposal_Generator_Date reads Proposal_Generator's static Date, so it
     // needs that sheet's headers too.
     applyJobScoringProposalDateLookup_(jsSheetForLookup, jsHeadersForLookup);
+    // Final_Decision's "already in Proposal_Generator" exemption from the
+    // age/proposal caps needs Proposal_Generator's headers, which don't
+    // exist yet when Job_Scoring is first created above.
+    applyJobScoringFinalDecision_(jsSheetForLookup, jsHeadersForLookup);
     applyJobDiscoveryAdditionalQuestionsLookup_(jdSheetForLookup,
       jdSheetForLookup.getRange(1, 1, 1, jdSheetForLookup.getLastColumn()).getValues()[0]);
   }
@@ -465,7 +469,7 @@ function registerEditTrigger_() {
 // formulas to an already-created sheet, not just at creation time.
 
 function applyJobScoringFormulas_(sheet, headers) {
-  var formulas = FFLib.buildJobScoringFormulas(headers);
+  var formulas = FFLib.buildJobScoringFormulas(headers, getProposalGeneratorHeaders_(sheet.getParent()));
 
   var fields = [
     'currentAgeDays', 'effortLevel', 'scopeRating', 'portfolioMatch', 'estimatedHours',
@@ -549,6 +553,32 @@ function applyJobScoringAdditionalQuestionsLookup_(sheet, headers) {
   var result = FFLib.buildJobScoringAdditionalQuestionsLookup(pgHeaders, headers);
   if (result) {
     sheet.getRange(2, result.col, FORMULA_PREFILL_ROWS, 1).setFormula(result.formula);
+  }
+}
+
+// Proposal_Generator's headers, or null while it's still on the old FILTER
+// layout. That FILTER reads Final_Decision, so pointing Final_Decision back
+// at Proposal_Generator before migration would form a formula loop.
+function getProposalGeneratorHeaders_(ss) {
+  var pgSheet = ss.getSheetByName('Proposal_Generator');
+  if (!pgSheet || pgSheet.getLastColumn() === 0) return null;
+  var headers = pgSheet.getRange(1, 1, 1, pgSheet.getLastColumn()).getValues()[0];
+  var idCol   = headers.indexOf('Discovery_ID') + 1;
+  if (idCol > 0 && pgSheet.getMaxRows() >= 2 && pgSheet.getRange(2, idCol).getFormula()) return null;
+  return headers;
+}
+
+// Re-applies Final_Decision once Proposal_Generator exists. Skipped while
+// Proposal_Generator is unmigrated: the new age/proposal caps would shrink
+// the old FILTER before REPAIR_FORMULAS migrates it, moving typed data onto
+// the wrong jobs.
+function applyJobScoringFinalDecision_(sheet, headers) {
+  var pgHeaders = getProposalGeneratorHeaders_(sheet.getParent());
+  if (!pgHeaders) return;
+  var formulas = FFLib.buildJobScoringFormulas(headers, pgHeaders);
+  if (formulas.finalDecisionCol && formulas.finalDecisionFormula) {
+    var rows = Math.max(sheet.getLastRow() - 1, FORMULA_PREFILL_ROWS);
+    sheet.getRange(2, formulas.finalDecisionCol, rows, 1).setFormula(formulas.finalDecisionFormula);
   }
 }
 

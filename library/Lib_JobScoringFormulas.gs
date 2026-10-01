@@ -16,7 +16,42 @@
  * -- same precedent as buildJobDiscoveryFormulas' Tool_Detected.
  * ============================================================
  */
-function buildJobScoringFormulas(headers) {
+// Upwork's Proposal_Count ranges and the lowest count each one can mean.
+// Shared by Final_Decision's Apply_Max_Proposals check (formula) and the
+// client's Proposal_Generator tagging (proposalCountFloor), so both read a
+// range the same way. A job is over the cap when its floor is at or above
+// Apply_Max_Proposals: with a cap of 15, "15 to 20" is over and "10 to 15"
+// is not.
+var PROPOSAL_COUNT_FLOORS_ = [
+  ['Fewer than 5', 0], ['5 to 10', 5], ['10 to 15', 10],
+  ['15 to 20', 15], ['20 to 50', 20], ['50+', 50]
+];
+
+// Floor for one Proposal_Count value: a range label, a plain number, or -1
+// when it's blank or unrecognized (never over any cap).
+function proposalCountFloor(value) {
+  var v = String(value === null || value === undefined ? '' : value).trim();
+  for (var i = 0; i < PROPOSAL_COUNT_FLOORS_.length; i++) {
+    if (PROPOSAL_COUNT_FLOORS_[i][0] === v) return PROPOSAL_COUNT_FLOORS_[i][1];
+  }
+  var n = Number(v);
+  return v !== '' && !isNaN(n) ? n : -1;
+}
+
+// A Settings value, or fallback when the row is missing or blank. A bare
+// VLOOKUP on a blank cell reads as 0, which would make every cap fire.
+function settingOr_(name, fallback) {
+  var look = 'VLOOKUP("' + name + '",Settings!$A:$B,2,0)';
+  return 'IF(IFERROR(' + look + ',"")="",' + fallback + ',' + look + ')';
+}
+
+// pgHeaders (optional) are Proposal_Generator's headers. With them,
+// Final_Decision exempts a job that already has a Proposal_Generator row
+// from the age and proposal caps, so jobs you already applied to stay
+// APPLY as they age instead of rewriting your history to SKIP. Without them
+// (the Setup Wizard builds Job_Scoring before Proposal_Generator exists),
+// there's no exemption until ensurePipelineSheets_ re-applies it.
+function buildJobScoringFormulas(headers, pgHeaders) {
   function idx(name) { return headers.indexOf(name); }
   function L(name) {
     var i = idx(name);
@@ -237,19 +272,42 @@ function buildJobScoringFormulas(headers) {
   }
 
   // Final_Decision -- Settings-driven thresholds (Apply_Min_Score, Apply_Min_Tool_Score,
-  // Apply_Min_Exp_Score, Apply_Max_Connects, Hold_Min_Score, Hold_Max_Connects), never hardcoded
+  // Apply_Min_Exp_Score, Apply_Max_Connects, Hold_Min_Score, Hold_Max_Connects), never hardcoded.
+  // A job past Apply_Max_Age_Days or Apply_Max_Proposals is SKIP unless it
+  // already has a Proposal_Generator row (see pgHeaders above). A blank
+  // Current_Age_Days or Proposal_Count never trips a cap.
   var finalDecisionIdx = idx('Final_Decision');
   if (finalDecisionIdx >= 0 && totalScoreL && connAffordL && toolScoreL && expScoreL && connectsReqL) {
+    var idL    = L('Discovery_ID');
+    var ageL   = L('Current_Age_Days');
+    var pgIdIx = pgHeaders ? pgHeaders.indexOf('Discovery_ID') : -1;
+    var pgIdL  = pgIdIx >= 0 ? colLetter_(pgIdIx + 1) : null;
+
+    var inPg = (idL && pgIdL)
+      ? 'ISNUMBER(MATCH(' + idL + '2,Proposal_Generator!$' + pgIdL + ':$' + pgIdL + ',0))'
+      : 'FALSE';
+    var tooOld = ageL
+      ? 'AND(ISNUMBER(' + ageL + '2),' + ageL + '2>' + settingOr_('Apply_Max_Age_Days', 9999) + ')'
+      : 'FALSE';
+    var floorExpr = propCountL
+      ? 'IFS(' + PROPOSAL_COUNT_FLOORS_.map(function (f) {
+          return propCountL + '2="' + f[0] + '",' + f[1];
+        }).join(',') + ',ISNUMBER(' + propCountL + '2),' + propCountL + '2,TRUE,-1)'
+      : '-1';
+    var tooMany = '(' + floorExpr + ')>=' + settingOr_('Apply_Max_Proposals', 9999);
+
     result.finalDecisionCol = finalDecisionIdx + 1;
     result.finalDecisionFormula =
-      '=IF(' + totalScoreL + '2="","",IF(' + connAffordL + '2="Cannot Afford","SKIP",IFS(' +
+      '=IF(' + totalScoreL + '2="","",' +
+      'IF(AND(NOT(' + inPg + '),OR(' + tooOld + ',' + tooMany + ')),"SKIP",' +
+      'IF(' + connAffordL + '2="Cannot Afford","SKIP",IFS(' +
       'AND(' + totalScoreL + '2>=VLOOKUP("Apply_Min_Score",Settings!$A:$B,2,0),' +
       toolScoreL + '2>=VLOOKUP("Apply_Min_Tool_Score",Settings!$A:$B,2,0),' +
       expScoreL + '2>=VLOOKUP("Apply_Min_Exp_Score",Settings!$A:$B,2,0),' +
       connectsReqL + '2<=VLOOKUP("Apply_Max_Connects",Settings!$A:$B,2,0)),"APPLY",' +
       'AND(' + totalScoreL + '2>=VLOOKUP("Hold_Min_Score",Settings!$A:$B,2,0),' +
       connectsReqL + '2<=VLOOKUP("Hold_Max_Connects",Settings!$A:$B,2,0)),"HOLD",' +
-      'TRUE,"SKIP")))';
+      'TRUE,"SKIP"))))';
   }
 
   // Proposal_Generator_Date is not built here. It's a Discovery_ID lookup of

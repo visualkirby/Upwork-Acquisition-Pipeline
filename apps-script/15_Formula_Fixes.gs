@@ -31,6 +31,18 @@ function REPAIR_FORMULAS() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ui = SpreadsheetApp.getUi();
 
+  // Proposal_Generator moves off the old FILTER layout before anything else
+  // here touches Job_Scoring. Every later step can change which jobs read
+  // APPLY (new Final_Decision caps, re-tagged tools), and the old FILTER
+  // would reorder with them, so migrating afterwards could lock typed data
+  // onto the wrong jobs. No-ops (0) once Discovery_ID is already static.
+  var pgMigrated = 0;
+  var pgEarly    = ss.getSheetByName('Proposal_Generator');
+  if (pgEarly && ss.getSheetByName('Job_Scoring') && pgEarly.getLastColumn() > 0) {
+    pgMigrated = migrateProposalGeneratorToStaticRows_(pgEarly,
+      pgEarly.getRange(1, 1, 1, pgEarly.getLastColumn()).getValues()[0]);
+  }
+
   // A template update can add a brand new pipeline sheet (Client_Chat_Log,
   // Contract_Tracker, Milestone_Tracker were added this way) -- an existing
   // customer's spreadsheet won't have it yet, and re-running the whole Setup
@@ -113,7 +125,7 @@ function REPAIR_FORMULAS() {
 
   if (pgSheet.getLastRow() >= 2) {
     var pgHeaders = pgSheet.getRange(1, 1, 1, pgSheet.getLastColumn()).getValues()[0];
-    var pgMigrated = applyProposalGeneratorLookupFormulas_(pgSheet, pgHeaders);
+    applyProposalGeneratorLookupFormulas_(pgSheet, pgHeaders);
     applyProposalGeneratorFormulas_(pgSheet, pgHeaders);
     applyProposalGeneratorValidation_(pgSheet, pgHeaders);
     var pgMap = getHeaderMap_(pgSheet);
