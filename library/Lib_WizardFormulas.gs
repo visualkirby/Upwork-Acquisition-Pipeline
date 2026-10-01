@@ -36,15 +36,19 @@
 // text and lost to Tableau's earlier position in Primary_Tools.
 //
 // A tool that only appears as part of a compound word (MySQL, PostgreSQL)
-// won't match under this stricter check unless that exact variant is also
-// listed in Primary_Tools -- deliberate, since there's no regex-only way to
-// allow "MySQL" without also reopening the "NoSQL" false-positive it's meant
-// to close. Users who want a variant tracked list it themselves (Setup
-// Wizard's Primary_Tools field has a hint for this now).
+// won't match its base name under this stricter check -- deliberate, since
+// there's no regex-only way to allow "MySQL" without also reopening the
+// "NoSQL" false-positive it's meant to close. Variants are matched through
+// aliasMap instead (the built-in SQL entry lists MySQL/PostgreSQL by name).
+//
+// aliasMap (optional) is { toolName: [other names] } from the client's
+// Tool_Aliases tab (see Lib_ToolAliases.gs). Each tool's clause matches its
+// own name OR any alias, but always returns the tool's own name, so
+// Tool_Score's "is this one of my Primary_Tools" check keeps working.
 //
 // Returns null if primaryToolsCsv has no usable tools (caller leaves
 // Tool_Detected formula-free, same as before).
-function buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv) {
+function buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv, aliasMap) {
   var tools = (primaryToolsCsv || '').split(',')
     .map(function (t) { return t.trim(); })
     .filter(function (t) { return t; });
@@ -60,7 +64,8 @@ function buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv) {
   function clausesFor(colL) {
     if (!colL) return [];
     return tools.map(function (t) {
-      var pattern = '\\b' + regexEscape(t) + '\\b';
+      var names   = [t].concat((aliasMap && aliasMap[t]) || []);
+      var pattern = '\\b(' + names.map(regexEscape).join('|') + ')\\b';
       return 'REGEXMATCH(LOWER(' + colL + '2),LOWER("' + quoteEscape(pattern) + '")),"' + quoteEscape(t) + '"';
     });
   }
@@ -68,7 +73,7 @@ function buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv) {
   return clausesFor(titleL).concat(clausesFor(descL));
 }
 
-function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
+function buildProposalGeneratorFormulas(headers, primaryToolsCsv, aliasMap) {
   var jobTitleIdx  = headers.indexOf('Job_Title');
   var descIdx      = headers.indexOf('Description');
   var toolDetIdx   = headers.indexOf('Tool_Detected');
@@ -85,7 +90,7 @@ function buildProposalGeneratorFormulas(headers, primaryToolsCsv) {
   // buildToolDetectedIfsArgs_ above for the shared title-priority,
   // word-boundary matching logic.
   if (toolDetIdx >= 0) {
-    var toolArgs = buildToolDetectedIfsArgs_(jtL, dcL, primaryToolsCsv);
+    var toolArgs = buildToolDetectedIfsArgs_(jtL, dcL, primaryToolsCsv, aliasMap);
     if (toolArgs) {
       result.toolDetectedCol = toolDetIdx + 1;
       result.toolDetectedFormula =

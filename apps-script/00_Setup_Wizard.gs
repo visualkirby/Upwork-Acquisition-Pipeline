@@ -420,7 +420,7 @@ function reorderPipelineTabs_(ss) {
     'Dashboard', 'Job_Discovery', 'Job_Scoring', 'Proposal_Generator', 'Proposal_Tracker',
     'Client_Chat_Log', 'Contract_Tracker', 'Milestone_Tracker', 'Hourly_Log',
     'Proposal_Templates', 'Keyword_Search_List', 'Keyword_Strategy', 'Keyword_Intelligence',
-    'Connects_Helper', 'Session_Log', 'Projects', 'Settings', 'Monthly_Performance'
+    'Connects_Helper', 'Session_Log', 'Projects', 'Settings', 'Tool_Aliases', 'Monthly_Performance'
   ];
 
   for (var i = 0; i < order.length; i++) {
@@ -767,7 +767,8 @@ function applyKeywordStrategyValidation_(sheet, headers) {
 // for why.
 function applyProposalGeneratorFormulas_(sheet, headers) {
   var primaryTools = (getSettings_()['Primary_Tools'] || '');
-  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, primaryTools);
+  var aliasMap     = getToolAliasMap_(sheet.getParent());
+  var formulas     = FFLib.buildProposalGeneratorFormulas(headers, primaryTools, aliasMap);
 
   if (formulas.toolDetectedFormula) {
     sheet.getRange(2, formulas.toolDetectedCol, FORMULA_PREFILL_ROWS, 1).setFormula(formulas.toolDetectedFormula);
@@ -777,7 +778,8 @@ function applyProposalGeneratorFormulas_(sheet, headers) {
 function applyJobDiscoveryFormulas_(sheet, headers) {
   var settings      = getSettings_();
   var primaryTools  = settings['Primary_Tools'] || '';
-  var formulas      = FFLib.buildJobDiscoveryFormulas(headers, primaryTools);
+  var aliasMap      = getToolAliasMap_(sheet.getParent());
+  var formulas      = FFLib.buildJobDiscoveryFormulas(headers, primaryTools, aliasMap);
 
   var fields = [
     'discoveryId', 'currentAgeDays', 'keywordFitScore', 'toolDetected', 'toolScore', 'experienceScore',

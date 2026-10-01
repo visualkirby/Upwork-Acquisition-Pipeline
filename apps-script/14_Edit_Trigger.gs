@@ -11,6 +11,7 @@
  *   Job_Scoring    -- date stamp on title entry, APPLY auto-proposal
  *   Job_Discovery/Job_Scoring/Connects_Helper/Settings -- syncProposalGenerator_
  *                     (28_Proposal_Sync.gs), since all four can change Final_Decision
+ *   Settings (Primary_Tools) / Tool_Aliases -- rebuildToolDetection_ (29_Tool_Aliases.gs)
  *   Connects_Helper -- replenishment/return accumulation + date stamp, both of
  *                      which also add back into Current_Connect_Balance
  *   Proposal_Tracker -- Viewed/Interview/Hired feed Connects_Helper's MTD_Replies/
@@ -343,9 +344,32 @@ function handleEdit(e) {
   // ----------------------------------------------------------
   // SETTINGS
   // Apply_* / Hold_* thresholds and Primary_Tools feed Final_Decision.
+  // A Primary_Tools edit also rebuilds Tool_Detected (29_Tool_Aliases.gs),
+  // which re-syncs Proposal_Generator itself.
   // ----------------------------------------------------------
   if (sheetName === "Settings") {
-    syncProposalGenerator_(ss);
+    var settingNameCol = getCol_(map, ["Setting"]);
+    var settingName    = settingNameCol ? String(sheet.getRange(row, settingNameCol).getValue()).trim() : "";
+    if (settingName === "Primary_Tools") {
+      rebuildToolDetection_(ss);
+    } else {
+      syncProposalGenerator_(ss);
+    }
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // TOOL_ALIASES
+  // An edited Aliases cell becomes the customer's own ("You") and wins over
+  // the built-in/AI list from then on. Any edit here rebuilds Tool_Detected.
+  // ----------------------------------------------------------
+  if (sheetName === "Tool_Aliases") {
+    var taAliasCol  = getCol_(map, ["Aliases"]);
+    var taSourceCol = getCol_(map, ["Source"]);
+    if (taAliasCol && taSourceCol && col === taAliasCol) {
+      sheet.getRange(row, taSourceCol).setValue("You");
+    }
+    rebuildToolDetection_(ss);
     return;
   }
 
@@ -792,6 +816,23 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var proposalSentDateCell = sheet.getRange(row, proposalSentDateCol);
   if (proposalSentDateCell.getValue() !== "") return;
 
+  // A row without a Discovery_ID or Job_Title isn't a real job (an orphan
+  // left by the old FILTER layout, or a typo'd row). Marking it Sent would
+  // create a blank Proposal_Tracker row, a HubSpot contact/deal, and spend
+  // Connects for nothing, so the status is cleared instead.
+  var guardId    = String(getCellValue_(sheet, row, map, ["Discovery_ID"])).trim();
+  var guardTitle = String(getCellValue_(sheet, row, map, ["Job_Title"])).trim();
+  if (!guardId || !guardTitle) {
+    sheet.getRange(row, proposalStatusCol).setValue("");
+    SpreadsheetApp.getUi().alert(
+      "Can't mark this row Sent",
+      "Row " + row + " has no " + (!guardId ? "Discovery_ID" : "Job_Title") + ", so it isn't linked to a job. " +
+      "Proposal_Status was cleared and nothing was added to Proposal_Tracker.",
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+
   var tracker = ss.getSheetByName("Proposal_Tracker");
   var scoring = ss.getSheetByName("Job_Scoring");
 
@@ -880,8 +921,9 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var sentDate    = new Date();
   var appliedDate = dateInGenerator || sentDate;
 
-  // Keyed on Discovery_ID when the row has one. The title/client/template
-  // match below is only the fallback for a row without an ID.
+  // Keyed on Discovery_ID (every row reaching this point has one). The
+  // title/client/template match below only runs for a Proposal_Tracker
+  // that has no Discovery_ID column.
   function existsInProposalTracker_() {
     var tIdCol = getCol_(ptMap, ["Discovery_ID"]);
     var ownId  = String(discoveryId).trim();

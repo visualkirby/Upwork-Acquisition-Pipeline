@@ -18,7 +18,7 @@
  * Primary_Tools later.
  * ============================================================
  */
-function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
+function buildJobDiscoveryFormulas(headers, primaryToolsCsv, aliasMap) {
   function idx(name) { return headers.indexOf(name); }
   function L(name) {
     var i = idx(name);
@@ -95,7 +95,7 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv) {
   // See buildToolDetectedIfsArgs_ (Lib_WizardFormulas.gs, shared with
   // Proposal_Generator) for the title-priority, word-boundary matching logic.
   if (toolDetIdx >= 0 && descL) {
-    var toolArgs = buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv);
+    var toolArgs = buildToolDetectedIfsArgs_(titleL, descL, primaryToolsCsv, aliasMap);
     if (toolArgs) {
       result.toolDetectedCol = toolDetIdx + 1;
       result.toolDetectedFormula =
