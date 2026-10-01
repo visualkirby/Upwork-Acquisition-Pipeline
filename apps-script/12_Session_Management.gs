@@ -20,8 +20,14 @@ function START_SESSION() {
     return;
   }
 
+  // Every session starts by matching the sheet's Connects balance to
+  // Upwork's (30_Connects_Sync.gs). Cancel stops the session start, same as
+  // the steps below.
+  var balance = promptConnectsBalanceSync_(ss, 'Start Session -- Step 1 of 3', '');
+  if (balance.cancelled) return;
+
   var idResponse = ui.prompt(
-    'Start Session -- Step 1 of 2',
+    'Start Session -- Step 2 of 3',
     'Enter your Session ID (e.g. S001):',
     ui.ButtonSet.OK_CANCEL
   );
@@ -34,7 +40,7 @@ function START_SESSION() {
   }
 
   var kwResponse = ui.prompt(
-    'Start Session -- Step 2 of 2',
+    'Start Session -- Step 3 of 3',
     'Which keywords are you searching this session?\n' +
     '(Enter comma-separated, e.g. Power BI Sales Dashboard, Excel Finance Report)',
     ui.ButtonSet.OK_CANCEL
@@ -61,8 +67,13 @@ function START_SESSION() {
 
   var yieldTarget = parseInt(getSettings_()['Session_Yield_Target']) || 8;
 
+  var connectsLine = balance.from !== undefined
+    ? 'Connects: ' + balance.to + ' (synced from Upwork, was ' + balance.from + ')\n'
+    : 'Connects: ' + (Number(getConnectsHelperValue_(ss, 'Current_Connect_Balance')) || 0) + '\n';
+
   ui.alert(
     'Session ' + sessionId + ' started.\n\n' +
+    connectsLine +
     'Keywords: ' + keywords + '\n' +
     'Start time: ' + formatTime_(new Date()) + '\n\n' +
     'Session target: ' + yieldTarget + ' unique new jobs.\n' +

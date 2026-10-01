@@ -1049,8 +1049,19 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   proposalSentDateCell.setValue(sentDate);
 
   // The Connects spent above lower Current_Connect_Balance, which can push
-  // other APPLY jobs to Cannot Afford.
-  syncProposalGenerator_(ss);
+  // other APPLY jobs to Cannot Afford. A balance below 0 means the sheet
+  // has drifted from Upwork (free/earned/refunded Connects it never saw),
+  // so ask for the real number before every job reads "Cannot Afford" --
+  // the sync re-runs syncProposalGenerator_ itself.
+  var balanceAfter = Number(getConnectsHelperValue_(ss, "Current_Connect_Balance"));
+  if (!isNaN(balanceAfter) && balanceAfter < 0) {
+    var synced = promptConnectsBalanceSync_(ss, "Connects balance is below 0",
+      "After this proposal the sheet shows " + balanceAfter + " Connects, which can't be right. " +
+      "Upwork adds free, earned, and refunded Connects the sheet never sees.");
+    if (synced.from === undefined) syncProposalGenerator_(ss);
+  } else {
+    syncProposalGenerator_(ss);
+  }
 
   showWalkthroughOnce_(
     "FF_WALKTHROUGH_PROPOSAL_SENT_SEEN",

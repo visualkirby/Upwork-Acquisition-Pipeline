@@ -253,7 +253,7 @@ function initConnectsHelper_(ss, startBalance) {
     ['Cost_per_Reply',              0],
     ['Cost_per_Interview',          0],
     ['Cost_per_Hire',               0]
-  ];
+  ].concat(CONNECTS_SYNC_ROWS_);
   sheet.getRange(2, 1, metrics.length, 2).setValues(metrics);
 }
 

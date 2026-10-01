@@ -43,6 +43,7 @@ function buildSystemMenu_() {
     .addSeparator()
     .addItem('Send Diagnostic Report',    'SEND_DIAGNOSTIC_REPORT')
     .addItem('Repair Formulas',           'REPAIR_FORMULAS')
+    .addItem('Sync Connects Balance',     'SYNC_CONNECTS_BALANCE')
     .addItem('Reconcile Connects_Helper Totals', 'RECONCILE_CONNECTS_HELPER')
     .addSeparator()
     .addSubMenu(ui.createMenu('Reset System')

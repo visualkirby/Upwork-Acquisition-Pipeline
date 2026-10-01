@@ -172,6 +172,13 @@ function REPAIR_FORMULAS() {
     repaired.push('Milestone_Tracker (Status dropdown, Amount currency format)');
   }
 
+  // Backfills the Connects balance-sync rows (30_Connects_Sync.gs) onto a
+  // Connects_Helper created before they existed.
+  var connectsRowsAdded = ensureConnectsSyncRows_(ss);
+  if (connectsRowsAdded.length > 0) {
+    repaired.push('Connects_Helper (added ' + connectsRowsAdded.join(', ') + ')');
+  }
+
   if (hlSheet) {
     ensureHourlyLogStatusColumn_(hlSheet);
     var hlHeaders = hlSheet.getRange(1, 1, 1, hlSheet.getLastColumn()).getValues()[0];
