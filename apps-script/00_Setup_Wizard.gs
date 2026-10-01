@@ -405,6 +405,8 @@ function ensurePipelineSheets_(ss, starterKeywords) {
       jdSheetForLookup.getRange(1, 1, 1, jdSheetForLookup.getLastColumn()).getValues()[0]);
   }
 
+  applyDateTimeFormats_(ss);
+
   var kwSheet = ss.getSheetByName('Keyword_Search_List');
   if (kwSheet && kwSheet.getLastRow() <= 1 && starterKeywords.length > 0) {
     var rows = starterKeywords.map(function(kw) {
@@ -561,6 +563,28 @@ function applyJobScoringAdditionalQuestionsLookup_(sheet, headers) {
 // Proposal_Generator's headers, or null while it's still on the old FILTER
 // layout. That FILTER reads Final_Decision, so pointing Final_Decision back
 // at Proposal_Generator before migration would form a formula loop.
+// These columns store full timestamps, but Sheets' default display format
+// hides the time. Showing it lets a session's real start and end be read off
+// the sheet. Applied on every ensurePipelineSheets_ call (Setup Wizard and
+// Repair Formulas), down past the last data row.
+var DATE_TIME_COLUMNS_ = [
+  ['Job_Discovery', 'Date_Found'], ['Job_Scoring', 'Date_Scored'],
+  ['Proposal_Generator', 'Date'], ['Proposal_Generator', 'Proposal_Sent_Date'],
+  ['Proposal_Generator', 'Proposal_Skip_Date'], ['Proposal_Tracker', 'Date_Applied'],
+  ['Session_Log', 'Date'], ['Keyword_Search_List', 'Last_Searched']
+];
+
+function applyDateTimeFormats_(ss) {
+  DATE_TIME_COLUMNS_.forEach(function (t) {
+    var sheet = ss.getSheetByName(t[0]);
+    if (!sheet || sheet.getLastColumn() === 0) return;
+    var col = getCol_(getHeaderMap_(sheet), [t[1]]);
+    if (!col) return;
+    var rows = Math.max(sheet.getLastRow() - 1, FORMULA_PREFILL_ROWS);
+    sheet.getRange(2, col, rows, 1).setNumberFormat('m/d/yyyy h:mm');
+  });
+}
+
 function getProposalGeneratorHeaders_(ss) {
   var pgSheet = ss.getSheetByName('Proposal_Generator');
   if (!pgSheet || pgSheet.getLastColumn() === 0) return null;

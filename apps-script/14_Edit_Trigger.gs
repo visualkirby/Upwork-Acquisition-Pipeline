@@ -843,7 +843,6 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   var jsMap = getHeaderMap_(scoring);
 
   var discoveryId        = getCellValue_(sheet, row, pgMap, ["Discovery_ID"]);
-  var dateInGenerator    = getCellValue_(sheet, row, pgMap, ["Date"]);
   var jobTitle           = getCellValue_(sheet, row, pgMap, ["Job_Title"]);
   var clientName         = getCellValue_(sheet, row, pgMap, ["Client_Name", "Client Name"]);
   var toolRequested      = getCellValue_(sheet, row, pgMap, ["Tool_Detected", "Tool_Requested"]);
@@ -919,7 +918,10 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
   }
 
   var sentDate    = new Date();
-  var appliedDate = dateInGenerator || sentDate;
+  // Date_Applied is the moment the proposal was marked Sent. It used to copy
+  // Proposal_Generator's Date, which was a TODAY() formula with no time, so
+  // every Date_Applied landed at midnight.
+  var appliedDate = sentDate;
 
   // Keyed on Discovery_ID (every row reaching this point has one). The
   // title/client/template match below only runs for a Proposal_Tracker
