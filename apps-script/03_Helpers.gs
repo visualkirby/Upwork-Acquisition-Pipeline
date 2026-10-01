@@ -489,14 +489,19 @@ function sessionHalfwayJustReached_(ss) {
 // Fires once per session, the moment the halfway point is reached --
 // suggests switching keywords to keep results fresh for the back half of
 // the session.
-function handleSessionHalfwayReached_(ss) {
-  if (!sessionHalfwayJustReached_(ss)) return;
+//
+// quiet = true (Log New Job sidebar) returns the message instead of opening
+// a popup: a popup only renders while the Sheets tab is in front, so it
+// stalled the sidebar's save while the freelancer was on Upwork. Returns ''
+// when the halfway point wasn't just reached.
+function handleSessionHalfwayReached_(ss, quiet) {
+  if (!sessionHalfwayJustReached_(ss)) return '';
 
-  SpreadsheetApp.getUi().alert(
-    'Halfway There',
-    'You\'re halfway to this session\'s job target. Consider switching to a different keyword to keep results fresh for the rest of the session.',
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  var message = 'You\'re halfway to this session\'s job target. Consider switching to a different keyword to keep results fresh for the rest of the session.';
+  if (quiet) return message;
+
+  SpreadsheetApp.getUi().alert('Halfway There', message, SpreadsheetApp.getUi().ButtonSet.OK);
+  return '';
 }
 
 // Dispatch point for the moment a session's yield target is reached --
@@ -504,11 +509,12 @@ function handleSessionHalfwayReached_(ss) {
 // Fires the first-session-only guided tour steps, then the every-session
 // yield summary, both gated on the single sessionYieldJustReached_ check
 // (it's stateful/one-shot per session, so it must only be called once here).
-// Returns true the one time it actually fires, so callers (job_saveEntry)
-// know the session target was just hit -- e.g. to close the Log New Job
-// sidebar automatically.
-function handleSessionYieldReached_(ss) {
-  if (!sessionYieldJustReached_(ss)) return false;
+// Returns '' when the target wasn't just reached, otherwise the summary
+// text. quiet = true (Log New Job sidebar) shows it in the sidebar instead
+// of a popup, for the same tab-in-front reason as
+// handleSessionHalfwayReached_. The first-session tour steps stay popups.
+function handleSessionYieldReached_(ss, quiet) {
+  if (!sessionYieldJustReached_(ss)) return '';
 
   showTourStep_(
     'FF_TOUR_STEP4_YIELD_SEEN',
@@ -521,28 +527,32 @@ function handleSessionYieldReached_(ss) {
     'Any job scored APPLY automatically moves to Proposal_Generator. Head there next to review the AI-drafted proposals.'
   );
 
-  showSessionYieldSummary_(ss);
-  return true;
+  var summary = buildSessionYieldSummary_(ss);
+  if (!quiet) {
+    SpreadsheetApp.getUi().alert('Session Yield Summary', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+  return summary;
 }
 
-// Every-session popup (not just the first) shown the moment the yield
+// Every-session summary (not just the first) for the moment the yield
 // target is reached -- reports how many of THIS session's jobs moved to
 // Job_Scoring (Discovery_Action = Move to Scoring) and how many of those
 // were scored APPLY into Proposal_Generator. Job_Scoring carries no
 // Session_ID of its own, so the APPLY count is cross-referenced by
 // Discovery_ID against this session's Job_Discovery rows.
-function showSessionYieldSummary_(ss) {
+function buildSessionYieldSummary_(ss) {
+  var fallback  = 'Session target reached.';
   var prop      = PropertiesService.getScriptProperties();
   var sessionId = prop.getProperty('SESSION_ID');
 
   var discoverySheet = ss.getSheetByName('Job_Discovery');
-  if (!discoverySheet || discoverySheet.getLastRow() < 2) return;
+  if (!discoverySheet || discoverySheet.getLastRow() < 2) return fallback;
 
   var discMap      = getHeaderMap_(discoverySheet);
   var discIdCol    = getCol_(discMap, ['Discovery_ID']);
   var sessionIdCol = getCol_(discMap, ['Session_ID']);
   var actionCol    = getCol_(discMap, ['Discovery_Action']);
-  if (!discIdCol || !sessionIdCol || !actionCol) return;
+  if (!discIdCol || !sessionIdCol || !actionCol) return fallback;
 
   var discData = discoverySheet
     .getRange(2, 1, discoverySheet.getLastRow() - 1, discoverySheet.getLastColumn())
@@ -580,12 +590,8 @@ function showSessionYieldSummary_(ss) {
     }
   }
 
-  SpreadsheetApp.getUi().alert(
-    'Session Yield Summary',
-    movedToScoring + ' job(s) from this session moved to Job_Scoring.\n' +
-    applyCount + ' job(s) scored APPLY and moved to Proposal_Generator.',
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  return movedToScoring + ' job(s) from this session moved to Job_Scoring.\n' +
+    applyCount + ' job(s) scored APPLY and moved to Proposal_Generator.';
 }
 
 // Simple trigger, no registration needed (auto-fires on any selection

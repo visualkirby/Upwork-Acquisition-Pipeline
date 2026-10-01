@@ -155,6 +155,7 @@ textarea { resize: vertical; min-height: 90px; }
   </div>
 
   <div id="status"></div>
+  <div id="feedback-box"></div>
 
 </div>
 
@@ -165,6 +166,34 @@ function status(id, msg, type) {
 }
 function val(id) { return document.getElementById(id).value.trim(); }
 function num(id) { return Number(document.getElementById(id).value) || 0; }
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Everything the save used to show as Sheets popups (which only render
+// while the Sheets tab is in front): fit notes for the job just logged, the
+// duplicate warning, the halfway tip, and the session-complete summary.
+function showFeedback(r) {
+  var html = '';
+  if (r.duplicateWarning) {
+    html += '<div class="status error">' + escHtml(r.duplicateWarning) + '</div>';
+  }
+  if (r.fitNotes) {
+    html += '<div class="info-box"><b>Last job:</b> Effort ' + escHtml(r.fitNotes.effort) +
+      ' &middot; Scope ' + escHtml(r.fitNotes.scope) +
+      ' &middot; Portfolio ' + escHtml(r.fitNotes.portfolio) + '</div>';
+  }
+  if (r.halfwayTip) {
+    html += '<div class="info-box"><b>Halfway there.</b> ' + escHtml(r.halfwayTip) + '</div>';
+  }
+  if (r.sessionSummary) {
+    html += '<div class="info-box"><b>Session target reached.</b><br>' +
+      escHtml(r.sessionSummary).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="btn-row"><button class="btn btn-save" onclick="google.script.host.close()">Close</button></div>';
+  }
+  document.getElementById('feedback-box').innerHTML = html;
+}
 
 function updateCountdown(ctx) {
   var box = document.getElementById('countdown-box');
@@ -233,10 +262,12 @@ function saveJob() {
       if (r.ok) {
         updateCountdown(r);
         clearForm();
+        showFeedback(r);
         if (r.sessionComplete) {
-          status('status', 'Session target reached. Closing this sidebar...', 'ok');
+          // Stays open so the summary can be read; it used to close itself
+          // after 1.5 seconds behind a popup on the Sheets tab.
+          status('status', 'Job logged. Session target reached.', 'ok');
           document.getElementById('btn-save').disabled = true;
-          setTimeout(function () { google.script.host.close(); }, 1500);
         } else {
           status('status', 'Job logged. Form cleared for the next one.', 'ok');
         }

@@ -87,6 +87,9 @@ function job_saveEntry(data) {
     setCellValue_(sheet, row, map, ['Session_ID'], sessionId);
   }
 
+  var fitNotes         = null;
+  var duplicateWarning = '';
+
   var aiFitNotesCol = getCol_(map, ['AI_Fit_Notes']);
   if (aiFitNotesCol) {
     sheet.getRange(row, aiFitNotesCol).setValue('Analyzing...');
@@ -100,16 +103,11 @@ function job_saveEntry(data) {
     }
     sheet.getRange(row, aiFitNotesCol).setValue(quickResult);
 
-    var parsedFit = parseAiFitNotes_(quickResult);
-    if (parsedFit) {
-      SpreadsheetApp.getUi().alert(
-        'AI Fit Notes',
-        'Effort Level = ' + parsedFit.effort + '\n' +
-        'Scope Rating = ' + parsedFit.scope + '\n' +
-        'Portfolio Match = ' + parsedFit.portfolio,
-        SpreadsheetApp.getUi().ButtonSet.OK
-      );
-    }
+    // Fit notes, the duplicate warning, and the session milestones all go
+    // back to the sidebar instead of popping up: a popup only renders while
+    // the Sheets tab is in front, so with the freelancer on Upwork the save
+    // sat waiting on a popup they couldn't see.
+    fitNotes = parseAiFitNotes_(quickResult);
   }
 
   if (active === 'true' && data.jobLink) {
@@ -125,11 +123,8 @@ function job_saveEntry(data) {
       if (matchCount > 1) {
         var dupeCount = parseInt(prop.getProperty('SESSION_DUPE_COUNT') || '0', 10);
         prop.setProperty('SESSION_DUPE_COUNT', String(dupeCount + 1));
-        SpreadsheetApp.getUi().alert(
-          '⚠ Duplicate Detected -- Session ' + sessionId + '\n\n' +
-          'This job link already exists in Job_Discovery.\n\n' +
-          'Duplicate count this session: ' + (dupeCount + 1)
-        );
+        duplicateWarning = 'Duplicate: this job link is already in Job_Discovery. ' +
+          'You can delete the new row and skip to the next job. Duplicates this session: ' + (dupeCount + 1) + '.';
       }
     }
     colorDuplicateJobLinks();
@@ -139,11 +134,15 @@ function job_saveEntry(data) {
   // Job_Discovery block runs has to happen here too.
   syncProposalGenerator_(ss);
 
-  handleSessionHalfwayReached_(ss);
-  var sessionComplete = handleSessionYieldReached_(ss);
+  var halfwayTip     = handleSessionHalfwayReached_(ss, true);
+  var sessionSummary = handleSessionYieldReached_(ss, true);
 
   var result = buildSessionCountdown_(ss);
-  result.ok = true;
-  result.sessionComplete = sessionComplete;
+  result.ok               = true;
+  result.sessionComplete  = !!sessionSummary;
+  result.sessionSummary   = sessionSummary;
+  result.halfwayTip       = halfwayTip;
+  result.duplicateWarning = duplicateWarning;
+  result.fitNotes         = fitNotes;
   return result;
 }
