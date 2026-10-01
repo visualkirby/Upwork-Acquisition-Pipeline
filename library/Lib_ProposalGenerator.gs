@@ -70,6 +70,48 @@ function pickWeightedTemplate(jobType, templateRows, trackerStats) {
 }
 
 
+// Shared by every generator below. A real draft once answered "Yes, I set
+// up Google Ads for a healthcare provider" and quoted a $500 price, neither
+// of which the freelancer had ever said. Placed last in each prompt so it
+// overrides any earlier "be specific" instruction.
+var GROUNDING_RULES_ =
+  ' GROUNDING RULES (these override every instruction above): ' +
+  'Only claim experience, clients, industries, tools, results, and numbers that appear in the ' +
+  'portfolio/background or the job post given here. Never invent a client, employer, industry, ' +
+  'metric, percentage, count of years, or project. If the job asks about experience that is not ' +
+  'in the portfolio/background, say so plainly and point to the closest related work instead. ' +
+  'Never state a price, rate, budget, timeline, or availability -- write [YOUR RATE], [TIMELINE], ' +
+  'or [AVAILABILITY] where one is needed so the freelancer fills it in.';
+
+// Deterministic check after generation: any dollar amount or number in the
+// draft that doesn't appear in the material the AI was given gets listed on
+// a warning line above the draft. Nothing is removed -- the freelancer
+// decides. Numbers glued to letters (GA4, O365) aren't standalone numbers
+// and are skipped. Error strings from a failed call pass through untouched.
+function flagUngroundedNumbers_(text, sources) {
+  var draft = String(text || '');
+  if (!draft || /^(API error|Request failed|API key not set|No response)/.test(draft)) return draft;
+
+  var numberRe = /\$?\b\d[\d,]*(?:\.\d+)?\b(?:\s?(?:k|K|%|percent|years?|yrs?|months?|weeks?|days?|hours?|hrs?))?/g;
+  var digitsOf = function (s) { return String(s).replace(/[^\d.]/g, '').replace(/\.$/, ''); };
+
+  var known = {};
+  (String(sources.join(' ')).match(numberRe) || []).forEach(function (m) { known[digitsOf(m)] = true; });
+
+  var seen   = {};
+  var flags  = [];
+  (draft.match(numberRe) || []).forEach(function (m) {
+    var d = digitsOf(m);
+    if (!d || known[d] || seen[m]) return;
+    seen[m] = true;
+    flags.push('"' + m.trim() + '"');
+  });
+
+  if (flags.length === 0) return draft;
+  return '⚠ CHECK BEFORE SENDING: ' + flags.join(', ') +
+    ' not found in your portfolio or the job post. Delete this line before sending.\n\n' + draft;
+}
+
 /**
  * Some Upwork jobs add extra client-specified application questions beyond
  * the main cover letter. questions is whatever raw text the freelancer
@@ -94,14 +136,16 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
     'Answer ONLY the exact question(s) listed below -- do not invent, add, or answer any question ' +
     'that is not explicitly listed, even if it seems like a typical one for this kind of job. ' +
     'If only one question is listed, return only that one question and its answer. ' +
-    'QUESTIONS:\n' + questions;
+    'QUESTIONS:\n' + questions + '\n' +
+    GROUNDING_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 400,
-    temperature: 0.4
+    temperature: 0.2
   };
+  var sources = [portfolioContext, jobTitle, description, questions];
 
   try {
     var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
@@ -116,7 +160,7 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? data.choices[0].message.content.trim()
+      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
       : 'No response returned.';
 
   } catch (err) {
@@ -213,7 +257,8 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     'JOB TITLE: ' + jobTitle + '. ' +
     'TOOL REQUESTED: ' + (toolDetected || 'not specified') + '. ' +
     'JOB TYPE: ' + (jobType || 'dashboard project') + '. ' +
-    'JOB DESCRIPTION: ' + description.substring(0, 1200);
+    'JOB DESCRIPTION: ' + description.substring(0, 1200) +
+    GROUNDING_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
@@ -221,6 +266,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     max_tokens: lengthSpec.maxTokens,
     temperature: 0.5
   };
+  var sources = [journeyContext, portfolioAll, cred, jobTitle, toolDetected, jobType, description];
 
   try {
     var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
@@ -235,7 +281,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? data.choices[0].message.content.trim()
+      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
       : 'No response returned.';
 
   } catch (err) {
@@ -283,7 +329,8 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     'Job type: ' + (jobType || 'dashboard') + '. ' +
     'Budget: ' + (budget || 'not listed') + '. ' +
     'Found via keyword: ' + (keywordSearch || 'not noted') + '. ' +
-    'Description: ' + String(description).substring(0, 1800);
+    'Description: ' + String(description).substring(0, 1800) +
+    GROUNDING_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
@@ -291,6 +338,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     max_tokens: lengthSpec.maxTokens,
     temperature: 0.7
   };
+  var sources = [portfolioContext, forcedProject, jobTitle, toolDetected, jobType, proposalCount, budget, keywordSearch, description];
 
   try {
     var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
@@ -305,7 +353,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? data.choices[0].message.content.trim()
+      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
       : 'No response returned.';
 
   } catch (err) {
