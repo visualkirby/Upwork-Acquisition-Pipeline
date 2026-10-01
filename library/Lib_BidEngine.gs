@@ -9,6 +9,20 @@
 function getBidRecommendation(jobTitle, baseConnects, proposalCount,
                                totalScore, bid1, bid2, bid3, bid4,
                                apiKey, journeyContext, noBoostMaxProp, noBoostMinScore) {
+  // The freelancer enters 0 for all four bids when the Apply page has no
+  // boost table, so the job can't be boosted at all. Answered without the
+  // AI, which would otherwise recommend boosting a strong job for 1 Connect.
+  // Some zeros but not all is a real table with empty spots (fewer than 4
+  // people boosted), so that still goes through the rules below.
+  var bids = [bid1, bid2, bid3, bid4];
+  var allZero = bids.every(function (b) {
+    return b !== '' && b !== null && b !== undefined && Number(b) === 0;
+  });
+  if (allZero) {
+    return 'DECISION: NO BOOST\nBID: ' + baseConnects + ' (no boost)\n' +
+      'REASON: This job has no boost option on Upwork (all four bids are 0).';
+  }
+
   if (!apiKey) {
     return 'API key not set. Run System Tools > Setup API Key first.';
   }
