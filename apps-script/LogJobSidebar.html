@@ -118,8 +118,12 @@ textarea { resize: vertical; min-height: 90px; }
       <input type="number" id="budget" step="0.01">
     </div>
     <div>
-      <label>Hourly Rate</label>
-      <input type="number" id="hourly-rate" step="0.01">
+      <label>Hourly Min</label>
+      <input type="number" id="hourly-rate-min" step="0.01">
+    </div>
+    <div>
+      <label>Hourly Max</label>
+      <input type="number" id="hourly-rate-max" step="0.01">
     </div>
   </div>
 
@@ -204,7 +208,7 @@ function updateCountdown(ctx) {
 
 function clearForm() {
   ['job-title', 'description', 'client-name', 'job-link', 'keyword-search',
-   'budget', 'hourly-rate', 'client-hires', 'connects-required',
+   'budget', 'hourly-rate-min', 'hourly-rate-max', 'client-hires', 'connects-required',
    'days-since-posted', 'hours-since-posted', 'minutes-since-posted'
   ].forEach(function (id) { document.getElementById(id).value = ''; });
 
@@ -242,7 +246,8 @@ function saveJob() {
     budgetType:        val('budget-type'),
     paymentVerified:   val('payment-verified'),
     budget:            num('budget'),
-    hourlyRate:        num('hourly-rate'),
+    hourlyRateMin:     num('hourly-rate-min'),
+    hourlyRateMax:     num('hourly-rate-max'),
     clientHires:       num('client-hires'),
     connectsRequired:  num('connects-required'),
     daysSincePosted:   num('days-since-posted'),

@@ -72,7 +72,17 @@ function job_saveEntry(data) {
   setCellValue_(sheet, row, map, ['Budget_Type'], data.budgetType);
   setCellValue_(sheet, row, map, ['Payment_Verified'], data.paymentVerified);
   setCellValue_(sheet, row, map, ['Budget'], data.budget);
-  setCellValue_(sheet, row, map, ['Hourly_Rate'], data.hourlyRate);
+  // Upwork shows hourly jobs as a range ("$25 - $50/hr"). The range is kept
+  // in Hourly_Rate_Min/Max; Hourly_Rate holds its midpoint, which is what
+  // Budget_Quick_Score and Job_Scoring's Estimated_Hourly_Rate score. A
+  // single rate goes in either box.
+  if (ensureHourlyRangeColumns_(sheet)) map = getHeaderMap_(sheet);
+  var rateMin = Number(data.hourlyRateMin) || 0;
+  var rateMax = Number(data.hourlyRateMax) || 0;
+  var rate    = (rateMin && rateMax) ? (rateMin + rateMax) / 2 : (rateMin || rateMax);
+  setCellValue_(sheet, row, map, ['Hourly_Rate'], rate);
+  setCellValue_(sheet, row, map, ['Hourly_Rate_Min'], rateMin || '');
+  setCellValue_(sheet, row, map, ['Hourly_Rate_Max'], rateMax || '');
   setCellValue_(sheet, row, map, ['Client_Hires'], data.clientHires);
   setCellValue_(sheet, row, map, ['Connects_Required'], data.connectsRequired);
   setCellValue_(sheet, row, map, ['Days_Since_Posted'], data.daysSincePosted);
@@ -145,4 +155,19 @@ function job_saveEntry(data) {
   result.duplicateWarning = duplicateWarning;
   result.fitNotes         = fitNotes;
   return result;
+}
+
+// Appends Hourly_Rate_Min / Hourly_Rate_Max to a Job_Discovery created
+// before they existed (added at the end, so no existing column moves).
+// Returns true when it added either one.
+function ensureHourlyRangeColumns_(sheet) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  var missing = ['Hourly_Rate_Min', 'Hourly_Rate_Max'].filter(function (h) {
+    return headers.indexOf(h) === -1;
+  });
+  if (missing.length === 0) return false;
+  sheet.getRange(1, sheet.getLastColumn() + 1, 1, missing.length)
+    .setValues([missing]).setFontWeight('bold');
+  return true;
 }

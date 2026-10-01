@@ -172,6 +172,12 @@ function REPAIR_FORMULAS() {
     repaired.push('Milestone_Tracker (Status dropdown, Amount currency format)');
   }
 
+  // Backfills Hourly_Rate_Min / Hourly_Rate_Max (21_Job_Discovery_Sidebar.gs)
+  // onto a Job_Discovery created before they existed.
+  if (ensureHourlyRangeColumns_(jdSheet)) {
+    repaired.push('Job_Discovery (added Hourly_Rate_Min, Hourly_Rate_Max)');
+  }
+
   // Backfills the Connects balance-sync rows (30_Connects_Sync.gs) onto a
   // Connects_Helper created before they existed.
   var connectsRowsAdded = ensureConnectsSyncRows_(ss);

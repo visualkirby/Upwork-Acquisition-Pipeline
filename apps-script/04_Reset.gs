@@ -30,7 +30,7 @@ function RESET_TO_AFTER_SETUP() {
     'Job_Title', 'Description', 'Additional_Questions', 'Client_Name', 'Client Name',
     'Keyword_Search', 'Experience_Level', 'Hours_Since_Posted', 'Minutes_Since_Posted',
     'Days_Since_Posted', 'Proposal_Count', 'Payment_Verified', 'Client_Hires',
-    'Budget_Type', 'Budget', 'Hourly_Rate', 'Job_Link', 'Connects_Required',
+    'Budget_Type', 'Budget', 'Hourly_Rate', 'Hourly_Rate_Min', 'Hourly_Rate_Max', 'Job_Link', 'Connects_Required',
     'AI_Fit_Notes', 'Date_Found', 'Session_ID'
   ]);
   clearJobDiscoveryBackgrounds_(ss);
