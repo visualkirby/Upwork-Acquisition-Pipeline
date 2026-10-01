@@ -21,6 +21,7 @@ function openJobDiscoverySidebar_() {
 }
 
 function LOG_NEW_JOB() {
+  if (!confirmStaleSessionBeforeLogging_(SpreadsheetApp.getActiveSpreadsheet())) return;
   openJobDiscoverySidebar_();
 }
 

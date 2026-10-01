@@ -13,6 +13,7 @@ var FORMULA_PREFILL_ROWS = 500;
 
 function onOpen() {
   buildSystemMenu_();
+  showStaleSessionToast_();
 }
 
 function openSetupWizard_() {
@@ -163,7 +164,8 @@ function initSettingsSheet_(ss, data, thresholds) {
     ['Apply_Max_Age_Days',       thresholds.applyMaxAge],
     ['Hold_Min_Score',           thresholds.holdMin],
     ['Hold_Max_Connects',        thresholds.holdMaxConn],
-    ['Session_Yield_Target',     thresholds.yieldTarget]
+    ['Session_Yield_Target',     thresholds.yieldTarget],
+    ['Session_Stale_Hours',      12]
   ];
 
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);

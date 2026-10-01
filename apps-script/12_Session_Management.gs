@@ -106,8 +106,20 @@ function END_SESSION() {
   var startCount   = parseInt(prop.getProperty('SESSION_START_ROW_COUNT') || '0', 10);
   var dupeCount    = parseInt(prop.getProperty('SESSION_DUPE_COUNT')      || '0', 10);
 
-  var endTime    = new Date();
-  var startTime  = startTimeStr ? new Date(startTimeStr) : endTime;
+  var endTime   = new Date();
+  var startTime = startTimeStr ? new Date(startTimeStr) : endTime;
+
+  // A session left open past Session_Stale_Hours closes at its last real
+  // activity instead of now, so Duration and the Sent/Skip window cover the
+  // session itself rather than every day it sat open (S014 sat open 29 days).
+  var staleNote = '';
+  var stale     = getSessionStaleInfo_(ss);
+  if (stale.stale) {
+    var lastActivity = getSessionLastActivity_(ss, sessionId, startTime, stale.limitHours);
+    endTime   = lastActivity || startTime;
+    staleNote = 'Open ' + stale.ageLabel + ', so it was closed at its last activity (' +
+      Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'MMM d, h:mm a') + '), not now.';
+  }
   var durationMs = endTime - startTime;
 
   var discoverySheet = ss.getSheetByName('Job_Discovery');
@@ -280,7 +292,8 @@ function END_SESSION() {
     setCellValue_(logSheet, nextLogRow, logMap, ['Proposals_Sent'],        proposalsSent);
     setCellValue_(logSheet, nextLogRow, logMap, ['Proposals_Skipped'],     proposalsSkipped);
     setCellValue_(logSheet, nextLogRow, logMap, ['Connects_Spent'],        connectsSpent);
-    setCellValue_(logSheet, nextLogRow, logMap, ['Notes'],                 sessionNotes);
+    setCellValue_(logSheet, nextLogRow, logMap, ['Notes'],
+      [sessionNotes, staleNote].filter(function (n) { return n; }).join(' '));
   }
 
   // Session-scoped keys only -- deleteAllProperties() previously wiped every
@@ -303,7 +316,8 @@ function END_SESSION() {
     'Date:           ' + endTime.toLocaleDateString()  + '\n' +
     'Start:          ' + formatTime_(startTime)         + '\n' +
     'End:            ' + formatTime_(endTime)           + '\n' +
-    'Duration:       ' + formatDuration_(durationMs)    + '\n\n' +
+    'Duration:       ' + formatDuration_(durationMs)    + '\n' +
+    (staleNote ? staleNote + '\n' : '') + '\n' +
     'Keywords:\n  ' + keywords.split(',').join('\n  ')  + '\n\n' +
     '-- Discovery ──────────────────\n' +
     'Jobs logged:        ' + jobsLogged     + '\n' +
@@ -342,4 +356,106 @@ function getProposalStatusById_(ss) {
     if (id) out[id] = String(r[statusCol - 1]).trim();
   });
   return out;
+}
+
+// { stale, sessionId, hoursOpen, ageLabel } for the active session. stale
+// is false with no active session. The threshold is Settings >
+// Session_Stale_Hours, 12 when missing or blank.
+function getSessionStaleInfo_(ss) {
+  var prop = PropertiesService.getScriptProperties();
+  var info = { stale: false, sessionId: '', hoursOpen: 0, ageLabel: '' };
+  if (prop.getProperty('SESSION_ACTIVE') !== 'true') return info;
+
+  var startStr = prop.getProperty('SESSION_START_TIME');
+  if (!startStr) return info;
+
+  var limit = parseFloat(getSettings_()['Session_Stale_Hours']);
+  if (isNaN(limit) || limit <= 0) limit = 12;
+
+  info.sessionId = prop.getProperty('SESSION_ID') || '';
+  info.hoursOpen = (new Date() - new Date(startStr)) / 3600000;
+  info.ageLabel  = info.hoursOpen >= 48
+    ? Math.floor(info.hoursOpen / 24) + ' days'
+    : Math.floor(info.hoursOpen) + ' hours';
+  info.limitHours = limit;
+  info.stale      = info.hoursOpen > limit;
+  return info;
+}
+
+// When a session's real work ended. Anchored on its own logged jobs (the
+// latest Date_Found tagged with its Session_ID, or its start if it has
+// none), then extended by any proposal marked Sent/Skip within windowHours
+// after that anchor -- bidding in the same sitting. Sent/Skip dates carry
+// no Session_ID, so proposals sent days later while the session sat
+// forgotten must not stretch it back out. null when the session has no
+// jobs and no proposals in that window.
+function getSessionLastActivity_(ss, sessionId, startTime, windowHours) {
+  var asDate = function (v) {
+    return (v instanceof Date && !isNaN(v.getTime())) ? v : null;
+  };
+
+  var lastJob = null;
+  var jd = ss.getSheetByName('Job_Discovery');
+  if (jd && jd.getLastRow() > 1) {
+    var jdMap   = getHeaderMap_(jd);
+    var sidCol  = getCol_(jdMap, ['Session_ID']);
+    var dateCol = getCol_(jdMap, ['Date_Found']);
+    if (sidCol && dateCol) {
+      jd.getRange(2, 1, jd.getLastRow() - 1, jd.getLastColumn()).getValues().forEach(function (r) {
+        if (String(r[sidCol - 1]).trim().toUpperCase() !== sessionId) return;
+        var d = asDate(r[dateCol - 1]);
+        if (d && d >= startTime && (!lastJob || d > lastJob)) lastJob = d;
+      });
+    }
+  }
+
+  var anchor   = lastJob || startTime;
+  var windowMs = (windowHours || 12) * 3600000;
+  var latest   = lastJob;
+
+  var pg = ss.getSheetByName('Proposal_Generator');
+  if (pg && pg.getLastRow() > 1) {
+    var pgMap   = getHeaderMap_(pg);
+    var sentCol = getCol_(pgMap, ['Proposal_Sent_Date']);
+    var skipCol = getCol_(pgMap, ['Proposal_Skip_Date']);
+    pg.getRange(2, 1, pg.getLastRow() - 1, pg.getLastColumn()).getValues().forEach(function (r) {
+      [sentCol ? r[sentCol - 1] : null, skipCol ? r[skipCol - 1] : null].forEach(function (v) {
+        var d = asDate(v);
+        if (!d || d < anchor || d - anchor > windowMs) return;
+        if (!latest || d > latest) latest = d;
+      });
+    });
+  }
+  return latest;
+}
+
+// Called before Log New Job opens. Returns false when the freelancer
+// cancels. Yes ends the stale session (at its last activity) first.
+function confirmStaleSessionBeforeLogging_(ss) {
+  var info = getSessionStaleInfo_(ss);
+  if (!info.stale) return true;
+
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Session ' + info.sessionId + ' is still open',
+    'Session ' + info.sessionId + ' has been open ' + info.ageLabel + '.\n\n' +
+    'Yes = end it now (it closes at its last activity, then Log New Job opens)\n' +
+    'No = keep logging jobs into it',
+    ui.ButtonSet.YES_NO_CANCEL
+  );
+  if (answer === ui.Button.CANCEL || answer === ui.Button.CLOSE) return false;
+  if (answer === ui.Button.YES) END_SESSION();
+  return true;
+}
+
+// Non-blocking notice from onOpen. Toasts work in a simple trigger, unlike
+// a modal alert; any failure is ignored so the menu always builds.
+function showStaleSessionToast_() {
+  try {
+    var ss   = SpreadsheetApp.getActiveSpreadsheet();
+    var info = getSessionStaleInfo_(ss);
+    if (!info.stale) return;
+    ss.toast('Session ' + info.sessionId + ' has been open ' + info.ageLabel +
+      '. System Tools > End Session closes it.', 'Session still open', 15);
+  } catch (e) {}
 }

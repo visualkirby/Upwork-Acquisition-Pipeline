@@ -292,6 +292,17 @@ function REPAIR_FORMULAS() {
         repaired.push('Settings (Proposal_Length positioned right after Proposal_Tone, row ' + (toneRow + 1) + ')');
       }
 
+      // Session_Stale_Hours (12_Session_Management.gs) postdates most copies.
+      // Appended at the end with the default; a missing row already reads
+      // as 12, this just makes the setting visible to change.
+      if (settingNames.indexOf('Session_Stale_Hours') === -1) {
+        var staleRow = settingsSheet.getLastRow() + 1;
+        settingsSheet.getRange(staleRow, settingCol).setValue('Session_Stale_Hours');
+        settingsSheet.getRange(staleRow, valueCol).setValue(12);
+        settingNames.push('Session_Stale_Hours');
+        repaired.push('Settings (added Session_Stale_Hours = 12)');
+      }
+
       applySettingsValidation_(settingsSheet, settingNames);
       repaired.push('Settings (Journey_Stage/Proposal_Tone/Proposal_Length dropdowns)');
     }
