@@ -253,12 +253,8 @@ function handleEdit(e) {
               var autoPortfolioContext = FFLib.getPortfolioContext(autoSettings);
               var autoFreelancerName   = autoSettings['Freelancer_Name'] || 'the freelancer';
               var autoProposalLength   = autoSettings['Proposal_Length'] || 'Medium';
-              // Usually blank at APPLY time (RUN_JOB_CLASSIFICATION picks
-              // the project later), in which case generateAiProposal
-              // behaves as before; passed through for the case where a
-              // row was already classified when the proposal regenerates.
               var autoMandatoryProject = pgPortfolioCol2
-                ? String(pgSheet.getRange(pgRow, pgPortfolioCol2).getValue()).trim() : "";
+                ? ensurePortfolioProject_(pgSheet, pgRow, pgMap2) : "";
               aiProposalText = FFLib.generateAiProposal(
                 aiJobTitle, aiDescription, aiTool,
                 aiJobType, aiProposalCount, aiBudget, aiKeyword,
@@ -723,9 +719,9 @@ function applyBoostConnects_(ss, sheet, row, map) {
   var pgTemplate  = tmplColPG      ? sheet.getRange(row, tmplColPG).getValue()      : "";
   var pgHook      = hookColPG      ? sheet.getRange(row, hookColPG).getValue()      : "";
   var pgCta       = ctaColPG       ? sheet.getRange(row, ctaColPG).getValue()       : "";
-  var pgPortfolio = portfolioColPG ? sheet.getRange(row, portfolioColPG).getValue() : "";
-
   if (!pgDesc || !aiPropColPG) return;
+
+  var pgPortfolio = portfolioColPG ? ensurePortfolioProject_(sheet, row, map) : "";
 
   var tmplId  = String(pgTemplate).trim().substring(0, 2) || "T1";
   var hookVer = pgHook || "A";
@@ -751,6 +747,31 @@ function applyBoostConnects_(ss, sheet, row, map) {
     aiProposal = err.message;
   }
   sheet.getRange(row, aiPropColPG).setValue(aiProposal);
+}
+
+// Returns the row's Portfolio_Project, picking and writing one first when the
+// cell is blank. A job that reaches APPLY gets its first draft (here or at
+// Log Proposal Bid Step 2) before anyone runs Run Job Classification, so the
+// column was still blank and every draft fell back to the first project on
+// the Projects tab: all 3 drafts in session S016 (2026-10-05) cited the 3PL
+// dashboard, including a SharePoint job and a GA4 job.
+function ensurePortfolioProject_(sheet, row, map) {
+  var portfolioCol = getCol_(map, ["Portfolio_Project"]);
+  if (!portfolioCol) return "";
+
+  var current = String(sheet.getRange(row, portfolioCol).getValue()).trim();
+  if (current) return current;
+
+  var titleCol = getCol_(map, ["Job_Title"]);
+  var descCol  = getCol_(map, ["Description"]);
+  var title    = titleCol ? String(sheet.getRange(row, titleCol).getValue()).trim() : "";
+  var desc     = descCol  ? String(sheet.getRange(row, descCol).getValue()).trim()  : "";
+  if (!title && !desc) return "";
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty("UPWORK_OPENAI_API_KEY");
+  var picked = FFLib.pickPortfolioProject(title, desc, getPortfolioMapFromProjects_(), apiKey);
+  sheet.getRange(row, portfolioCol).setValue(picked);
+  return picked;
 }
 
 // Drafts answers to Additional_Questions -- self-contained (reads

@@ -73,13 +73,18 @@ function pickWeightedTemplate(jobType, templateRows, trackerStats) {
 // Shared by every generator below. A real draft once answered "Yes, I set
 // up Google Ads for a healthcare provider" and quoted a $500 price, neither
 // of which the freelancer had ever said. Placed last in each prompt so it
-// overrides any earlier "be specific" instruction.
+// overrides any earlier "be specific" instruction. Job 126 on 2026-10-05
+// added the kind-of-work line: the draft opened with "My experience in
+// reorganizing SharePoint environments" when no project shows that work.
 var GROUNDING_RULES_ =
   ' GROUNDING RULES (these override every instruction above): ' +
   'Only claim experience, clients, industries, tools, results, and numbers that appear in the ' +
   'portfolio/background or the job post given here. Never invent a client, employer, industry, ' +
   'metric, percentage, count of years, or project. If the job asks about experience that is not ' +
   'in the portfolio/background, say so plainly and point to the closest related work instead. ' +
+  'Never claim experience with a kind of work ("my experience reorganizing SharePoint ' +
+  'environments") unless a project or the background shows that exact work -- describe what the ' +
+  'named project actually did instead. ' +
   'Never state a price, rate, budget, timeline, or availability -- write [YOUR RATE], [TIMELINE], ' +
   'or [AVAILABILITY] where one is needed so the freelancer fills it in.';
 
@@ -99,28 +104,73 @@ var DESCRIPTION_INSTRUCTION_RE_ = new RegExp(
   '|answer (the following|these|this|each)' +
   '|when (you )?apply)\\b', 'i');
 
+// Job 126 on 2026-10-05 ended with "Please answer in your application 1. In a
+// paragraph or two, explain ... 2. ... 3. Briefly describe ...". None of the
+// three items ends in "?" or contains an instruction phrase, so only the
+// lead-in line came back and the draft made up its own questions. A list
+// that directly follows a lead-in is now taken whole, item by item, in place
+// of the lead-in.
+var LIST_ITEM_MARK_       = '\u0001';
+var DESCRIPTION_ITEM_MAX_ = 300;
+
 function extractDescriptionQuestions(description) {
-  // Numbered/bulleted list markers ("1.", "2)", "- ") become breaks so
-  // "answer these: 1. X? 2. Y?" splits into the lead-in plus each question.
+  // Numbered/bulleted list markers ("1.", "2)", "- ") start a new chunk,
+  // flagged so list items can be told apart from prose.
   var text = String(description || '')
     .replace(/\s+/g, ' ')
-    .replace(/(^|\s)(\d{1,2}[.)]|[-*•])\s+/g, '\n')
+    .replace(/(^|\s)(\d{1,2}[.)]|[-*•])\s+/g, '\n' + LIST_ITEM_MARK_)
     .trim();
   if (!text) return [];
 
+  var chunks = text.split('\n').filter(function (c) { return c.replace(LIST_ITEM_MARK_, '').trim(); });
+  var isItem = function (c) { return c && c.charAt(0) === LIST_ITEM_MARK_; };
+  var bodyOf = function (c) { return isItem(c) ? c.substring(1) : c; };
+  var sentencesOf = function (s) {
+    return s.split(/(?<=[.?!:])\s+/).map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+  };
+  var isHit = function (s) { return /\?$/.test(s) || DESCRIPTION_INSTRUCTION_RE_.test(s); };
+
+  var out  = [];
   var seen = {};
-  return text.split(/(?<=[.?!:])\s+|\n+/)
-    .map(function (s) { return s.trim(); })
-    .filter(function (s) {
-      if (s.length < 12) return false;
-      var hit = /\?$/.test(s) || DESCRIPTION_INSTRUCTION_RE_.test(s);
-      var key = s.toLowerCase();
-      if (!hit || seen[key]) return false;
-      seen[key] = true;
-      return true;
-    })
-    .map(function (s) { return s.length > 300 ? s.substring(0, 300).trim() + '...' : s; })
-    .slice(0, 8);
+  var add  = function (s) {
+    s = String(s || '').trim();
+    var key = s.toLowerCase();
+    if (s.length < 12 || seen[key]) return;
+    seen[key] = true;
+    out.push(s.length > DESCRIPTION_ITEM_MAX_ ? s.substring(0, DESCRIPTION_ITEM_MAX_).trim() + '...' : s);
+  };
+
+  for (var i = 0; i < chunks.length; i++) {
+    var sentences = sentencesOf(bodyOf(chunks[i]));
+    var lastSentence = sentences.length ? sentences[sentences.length - 1] : '';
+
+    if (isItem(chunks[i + 1]) && DESCRIPTION_INSTRUCTION_RE_.test(lastSentence)) {
+      sentences.slice(0, -1).forEach(function (s) { if (isHit(s)) add(s); });
+
+      var j = i + 1;
+      for (; j < chunks.length && isItem(chunks[j]); j++) {
+        var itemSentences = sentencesOf(bodyOf(chunks[j]));
+        // Line breaks are gone by this point, so the last item runs into
+        // whatever prose follows the list. Keep only its first sentence, plus
+        // what follows a colon ("address this hypothetical: A department...").
+        if (isItem(chunks[j + 1])) {
+          add(itemSentences.join(' '));
+        } else {
+          var kept = itemSentences[0] || '';
+          for (var k = 1; k < itemSentences.length && /:$/.test(kept); k++) {
+            kept += ' ' + itemSentences[k];
+          }
+          add(kept);
+        }
+      }
+      i = j - 1;
+      continue;
+    }
+
+    sentences.forEach(function (s) { if (isHit(s)) add(s); });
+  }
+
+  return out.slice(0, 8);
 }
 
 // Prompt block for the cover-letter generators; empty when the description
@@ -133,15 +183,32 @@ function descriptionQuestionsBlock_(description) {
   // test on job 119: the draft talked around all four questions and turned
   // one of them back into its closing question. A labelled block after the
   // letter is also how clients expect numbered questions answered.
+  // Job 126 (2026-10-05) exposed two more failures once its questions came
+  // through: the draft answered each question twice (in the letter body and
+  // again under "Your questions:"), ran out of tokens mid-answer, and claimed
+  // "I have reorganized a tenant..." when no portfolio project says so.
   return ' QUESTIONS AND INSTRUCTIONS IN THE JOB POST: ' +
     qs.map(function (q, i) { return '(' + (i + 1) + ') ' + q; }).join(' ') +
-    ' The client asked applicants to respond to these. This overrides the length, no-list, and ' +
-    'closing-question rules above: after the proposal, add a blank line, then the heading ' +
-    '"Your questions:", then a numbered answer for each question that is a real request to ' +
-    'applicants, in the client\'s order, one or two sentences each. Skip lead-in lines like ' +
-    '"please answer these" and anything rhetorical. If an instruction is about the proposal ' +
-    'itself (such as a word to start with), follow it in the proposal instead of answering it. ' +
-    'Do not repeat a client question as your own closing question.';
+    ' The client asked applicants to respond to these. Write the proposal body exactly as the ' +
+    'rules above say and do not answer these questions inside it. Then, overriding the length, ' +
+    'no-list, and closing-question rules: add a blank line, the heading "Your questions:", and a ' +
+    'numbered answer for each question that is a real request to applicants, in the client\'s ' +
+    'order, one to three sentences each. Skip lead-in lines like "please answer these" and ' +
+    'anything rhetorical. If an instruction is about the proposal itself (such as a word to start ' +
+    'with), follow it in the proposal instead of answering it. Do not repeat a client question as ' +
+    'your own closing question. When a question asks about work the freelancer has done ("describe ' +
+    'a tenant you reorganized", "tell me about a flow you built"), answer only from a project or ' +
+    'background item given above and name it. If none of them is that kind of work, say plainly ' +
+    'that the freelancer has not done that exact work yet, then name the closest real project. ' +
+    'Never describe a past project, client, or result that is not given above.';
+}
+
+// Room for the "Your questions:" block on top of the letter itself, so the
+// last answer isn't cut off mid-sentence.
+var TOKENS_PER_DESCRIPTION_QUESTION_ = 110;
+
+function questionTokenAllowance_(description) {
+  return extractDescriptionQuestions(description).length * TOKENS_PER_DESCRIPTION_QUESTION_;
 }
 
 // Deterministic check after generation: any dollar amount or number in the
@@ -325,7 +392,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: lengthSpec.maxTokens,
+    max_tokens: lengthSpec.maxTokens + questionTokenAllowance_(description),
     temperature: 0.5
   };
   var sources = [journeyContext, portfolioAll, cred, jobTitle, toolDetected, jobType, description];
@@ -398,7 +465,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: lengthSpec.maxTokens,
+    max_tokens: lengthSpec.maxTokens + questionTokenAllowance_(description),
     temperature: 0.7
   };
   var sources = [portfolioContext, forcedProject, jobTitle, toolDetected, jobType, proposalCount, budget, keywordSearch, description];

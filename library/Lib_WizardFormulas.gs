@@ -154,9 +154,14 @@ function pickPortfolioProject(jobTitle, description, portfolioMap, apiKey) {
     return p.name + (p.description ? (' (' + p.description + ')') : '');
   }).join('; ');
 
+  // Ranking order is spelled out because "best matches" alone picked the
+  // Odoo warehouse case study for a SharePoint cleanup job (2026-10-05, job
+  // 126) over a project built on SharePoint and Teams.
   var prompt =
-    "Pick exactly one portfolio project that best matches this Upwork job, based on the project " +
-    "descriptions below. Reply with only the project name and nothing else.\n\n" +
+    "Pick the one portfolio project below that is the strongest proof this freelancer can do " +
+    "this Upwork job. Rank by, in order: (1) built in the same software or platform the job's " +
+    "work happens in (a SharePoint job wants a project built on SharePoint), (2) the same kind " +
+    "of work, (3) the same industry. Reply with only the exact project name and nothing else.\n\n" +
     "Portfolio projects: " + projectText + "\n\n" +
     "Job: " + jobTitle + ". " + String(description || '').substring(0, 800);
 
