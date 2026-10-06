@@ -23,7 +23,7 @@ var BUILTIN_TOOL_ALIASES_ = [
   ['Power Platform',          ['Microsoft Power Platform']],
   ['Power Query',             ['PowerQuery']],
   ['Excel',                   ['Microsoft Excel', 'MS Excel', 'Excel 365']],
-  ['Google Sheets',           ['GSheets', 'G Sheets', 'Google Spreadsheet', 'Google Spreadsheets']],
+  ['Google Sheets',           ['Google Sheet', 'GSheets', 'G Sheets', 'Google Spreadsheet', 'Google Spreadsheets']],
   ['Apps Script',             ['Google Apps Script']],
   ['Looker Studio',           ['Data Studio', 'Google Data Studio', 'Looker Studio Pro']],
   ['GA4',                     ['Google Analytics 4', 'Google Analytics', 'GA 4']],

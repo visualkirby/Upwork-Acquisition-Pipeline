@@ -928,10 +928,10 @@ function handleProposalStatusChange_(ss, sheet, row, map) {
         var elapsedDays = (now - anchorDate) / (1000 * 60 * 60 * 24);
         var hVal        = parseFloat(hoursSincePosted) || 0;
         var dVal        = parseFloat(daysSincePosted)  || 0;
-        if (hVal > 0) {
-          currentAgeDays = Math.round(((hVal / 24) + elapsedDays) * 10) / 10;
-        } else if (dVal > 0) {
-          currentAgeDays = Math.round((dVal + elapsedDays) * 10) / 10;
+        // Days and Hours add together (3 days 14 hours), matching the
+        // Current_Age_Days formulas in Job_Discovery and Job_Scoring.
+        if (hVal > 0 || dVal > 0) {
+          currentAgeDays = Math.round((dVal + (hVal / 24) + elapsedDays) * 10) / 10;
         }
       }
       break;

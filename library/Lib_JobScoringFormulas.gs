@@ -93,13 +93,14 @@ function buildJobScoringFormulas(headers, pgHeaders) {
   var notesL          = L('AI_Fit_Notes');
 
   // Current_Age_Days -- anchored on Date_Scored (Job_Scoring's own
-  // re-entry point), not Date_Found.
+  // re-entry point), not Date_Found. Days + Hours added together, and NOW()
+  // since Date_Scored carries a time (see Lib_JobDiscoveryFormulas.gs).
   var ageIdx = idx('Current_Age_Days');
   if (ageIdx >= 0 && dateScoredL && hoursL && daysL) {
     result.currentAgeDaysCol = ageIdx + 1;
     result.currentAgeDaysFormula =
-      '=IF(' + dateScoredL + '2="","",IF(' + hoursL + '2<>"",(' + hoursL + '2/24)+(TODAY()-' + dateScoredL + '2),' +
-      'IF(' + daysL + '2<>"",' + daysL + '2+(TODAY()-' + dateScoredL + '2),"")))';
+      '=IF(OR(' + dateScoredL + '2="",' + postedBlankExpr_(null, hoursL, daysL) + '),"",' +
+      '(' + postedHoursExpr_(null, hoursL, daysL) + ')/24+(NOW()-' + dateScoredL + '2))';
   }
 
   // Effort_Level / Scope_Rating / Portfolio_Match -- auto-parsed from
@@ -189,11 +190,7 @@ function buildJobScoringFormulas(headers, pgHeaders) {
   var freshIdx = idx('Freshness_Score');
   if (freshIdx >= 0 && hoursL && daysL) {
     result.freshnessScoreCol = freshIdx + 1;
-    result.freshnessScoreFormula =
-      '=IF(AND(' + hoursL + '2="",' + daysL + '2=""),"",IFS(' +
-      'AND(' + hoursL + '2<>"",' + hoursL + '2<=24),0.9,' +
-      'AND(' + hoursL + '2<>"",' + hoursL + '2<=72),1,' +
-      daysL + '2<=3,1,' + daysL + '2<=7,0.8,' + daysL + '2<=14,0.6,TRUE,0.4))';
+    result.freshnessScoreFormula = buildFreshnessFormula_(null, hoursL, daysL);
   }
 
   // Competition_Score -- Proposal_Count is a dropdown of Upwork's own ranges

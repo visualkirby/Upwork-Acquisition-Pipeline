@@ -26,18 +26,17 @@ function START_SESSION() {
   var balance = promptConnectsBalanceSync_(ss, 'Start Session -- Step 1 of 3', '');
   if (balance.cancelled) return;
 
+  // ui.prompt can't pre-fill its text box, so the suggested ID is shown in
+  // the message and a blank answer accepts it (same as Step 1's balance).
+  var suggestedId = suggestNextSessionId_(ss);
   var idResponse = ui.prompt(
     'Start Session -- Step 2 of 3',
-    'Enter your Session ID (e.g. S001):',
+    'Session ID: ' + suggestedId + '\nLeave blank to use it, or type a different ID.',
     ui.ButtonSet.OK_CANCEL
   );
   if (idResponse.getSelectedButton() !== ui.Button.OK) return;
 
-  var sessionId = idResponse.getResponseText().trim().toUpperCase();
-  if (!sessionId) {
-    ui.alert('Session ID cannot be blank.');
-    return;
-  }
+  var sessionId = idResponse.getResponseText().trim().toUpperCase() || suggestedId;
 
   var kwResponse = ui.prompt(
     'Start Session -- Step 3 of 3',
@@ -458,4 +457,27 @@ function showStaleSessionToast_() {
     ss.toast('Session ' + info.sessionId + ' has been open ' + info.ageLabel +
       '. System Tools > End Session closes it.', 'Session still open', 15);
   } catch (e) {}
+}
+
+// Next Session ID: the highest S<number> already used in Session_Log or
+// Job_Discovery, plus one, keeping the zero-padding the user has been
+// using (S017 -> S018). A fresh sheet starts at S001.
+function suggestNextSessionId_(ss) {
+  var maxNum = 0;
+  var width  = 3;
+  ['Session_Log', 'Job_Discovery'].forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var col = getCol_(getHeaderMap_(sheet), ['Session_ID']);
+    if (!col) return;
+    sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      var m = String(r[0]).trim().toUpperCase().match(/^S(\d+)$/);
+      if (!m) return;
+      var n = parseInt(m[1], 10);
+      if (n > maxNum) { maxNum = n; width = Math.max(3, m[1].length); }
+    });
+  });
+  var next = String(maxNum + 1);
+  while (next.length < width) next = '0' + next;
+  return 'S' + next;
 }

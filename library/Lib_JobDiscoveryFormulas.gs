@@ -67,19 +67,20 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv, aliasMap) {
     result.discoveryIdFormula = '=IF(' + descL + '2="","",ROW()-1)';
   }
 
-  // Current_Age_Days -- live aging, no Settings dependency. Minutes takes
-  // priority (job posted under an hour ago), then Hours, then Days.
+  // Current_Age_Days -- live aging, no Settings dependency. The job's age
+  // when logged is Days + Hours + Minutes added together (the sidebar takes
+  // all three, e.g. 3 days 14 hours), plus the time since Date_Found. NOW(),
+  // not TODAY(): Date_Found carries a time, and TODAY() is midnight, which
+  // made a job found that morning show a negative age.
   // Minutes_Since_Posted is optional -- older sheets built before it existed
-  // fall back to the Hours/Days-only version instead of breaking.
+  // just leave it out of the sum.
   var ageIdx = idx('Current_Age_Days');
-  if (ageIdx >= 0 && dateFoundL) {
+  var postedHours = postedHoursExpr_(minsL, hoursL, daysL);
+  if (ageIdx >= 0 && dateFoundL && postedHours) {
     result.currentAgeDaysCol = ageIdx + 1;
-    var hoursOrDays =
-      'IF(' + hoursL + '2<>"",(' + hoursL + '2/24)+(TODAY()-' + dateFoundL + '2),' +
-      'IF(' + daysL + '2<>"",' + daysL + '2+(TODAY()-' + dateFoundL + '2),""))';
-    result.currentAgeDaysFormula = minsL
-      ? '=IF(' + dateFoundL + '2="","",IF(' + minsL + '2<>"",(' + minsL + '2/1440)+(TODAY()-' + dateFoundL + '2),' + hoursOrDays + '))'
-      : '=IF(' + dateFoundL + '2="","",' + hoursOrDays + ')';
+    result.currentAgeDaysFormula =
+      '=IF(OR(' + dateFoundL + '2="",' + postedBlankExpr_(minsL, hoursL, daysL) + '),"",' +
+      '(' + postedHours + ')/24+(NOW()-' + dateFoundL + '2))';
   }
 
   // Keyword_Fit_Score
@@ -120,20 +121,13 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv, aliasMap) {
     result.experienceScoreFormula = buildExperienceScoreFormula_(expL);
   }
 
-  // Freshness_Score -- Minutes_Since_Posted (job posted under an hour ago)
-  // always scores maximum freshness. Optional column, same as above.
+  // Freshness_Score -- scored on the job's total age when logged (Days +
+  // Hours + Minutes), so a filled Minutes box no longer outranks the Days
+  // box. Under an hour scores maximum freshness. Optional column, same as above.
   var freshIdx = idx('Freshness_Score');
   if (freshIdx >= 0 && hoursL && daysL) {
     result.freshnessScoreCol = freshIdx + 1;
-    var blankCheck = minsL
-      ? 'AND(' + minsL + '2="",' + hoursL + '2="",' + daysL + '2="")'
-      : 'AND(' + hoursL + '2="",' + daysL + '2="")';
-    var minsClause = minsL ? (minsL + '2<>"",1,') : '';
-    result.freshnessScoreFormula =
-      '=IF(' + blankCheck + ',"",IFS(' + minsClause +
-      'AND(' + hoursL + '2<>"",' + hoursL + '2<=24),0.9,' +
-      'AND(' + hoursL + '2<>"",' + hoursL + '2<=72),1,' +
-      daysL + '2<=3,1,' + daysL + '2<=7,0.8,' + daysL + '2<=14,0.6,TRUE,0.4))';
+    result.freshnessScoreFormula = buildFreshnessFormula_(minsL, hoursL, daysL);
   }
 
   // Competition_Score -- Proposal_Count is a dropdown of Upwork's own
@@ -212,4 +206,33 @@ function buildJobDiscoveryFormulas(headers, primaryToolsCsv, aliasMap) {
   }
 
   return result;
+}
+
+// A job's age when logged, in hours: Days + Hours + Minutes added together.
+// N() turns a blank box into 0. Any column letter passed as null (an older
+// sheet without that column) is left out. Shared with Job_Scoring's
+// formulas (Lib_JobScoringFormulas.gs), which have no Minutes column.
+function postedHoursExpr_(minsL, hoursL, daysL) {
+  var parts = [];
+  if (daysL)  parts.push('N(' + daysL + '2)*24');
+  if (hoursL) parts.push('N(' + hoursL + '2)');
+  if (minsL)  parts.push('N(' + minsL + '2)/60');
+  return parts.join('+');
+}
+
+// TRUE when none of the age boxes were filled in.
+function postedBlankExpr_(minsL, hoursL, daysL) {
+  var checks = [];
+  [daysL, hoursL, minsL].forEach(function (c) { if (c) checks.push(c + '2=""'); });
+  return 'AND(' + checks.join(',') + ')';
+}
+
+// Freshness_Score on the job's total age when logged. Same bands as before:
+// under an hour 1, under a day 0.9, up to 3 days 1, up to a week 0.8, up to
+// two weeks 0.6, older 0.4.
+function buildFreshnessFormula_(minsL, hoursL, daysL) {
+  var h = '(' + postedHoursExpr_(minsL, hoursL, daysL) + ')';
+  return '=IF(' + postedBlankExpr_(minsL, hoursL, daysL) + ',"",IFS(' +
+    h + '<1,1,' + h + '<24,0.9,' + h + '<=72,1,' +
+    h + '<=168,0.8,' + h + '<=336,0.6,TRUE,0.4))';
 }
