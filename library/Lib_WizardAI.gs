@@ -77,7 +77,10 @@ function generateNicheTemplates(description, tools, background, apiKey) {
     'You are helping a freelancer set up an Upwork proposal-writing system. ' +
     'Based on their specialty below, define 3 to 6 distinct JOB TYPE categories that jobs in ' +
     'their niche typically fall into (e.g. for a bookkeeper: Cleanup, Ongoing Bookkeeping, ' +
-    'Reconciliation, Reporting). For EACH category, write a short proposal-writing strategy. ' +
+    'Reconciliation, Reporting). If work in this niche includes fixing things clients already ' +
+    'have (broken flows, reports, formulas, tracking), make one category Troubleshooting for jobs ' +
+    'to debug or fix something already built that is broken or not working as expected. ' +
+    'For EACH category, write a short proposal-writing strategy. ' +
     'Return only a valid JSON array, no markdown, no explanation. Each element must have exactly ' +
     'these keys: ' +
     '"jobType" (1-3 word category name), ' +

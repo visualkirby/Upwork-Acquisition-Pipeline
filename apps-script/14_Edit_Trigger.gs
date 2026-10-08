@@ -640,6 +640,7 @@ function computeBidRecommendation_(ss, sheet, row, map) {
   var baseConVal   = baseConCol   ? sheet.getRange(row, baseConCol).getValue()   : "";
   var propCountVal = propCountCol ? sheet.getRange(row, propCountCol).getValue() : "";
   var titleVal     = titleCol2    ? sheet.getRange(row, titleCol2).getValue()    : "";
+  var boostTableVal = getCellValue_(sheet, row, map, ["Boost_Table"]);
 
   var idVal          = String(getCellValue_(sheet, row, map, ["Discovery_ID"])).trim();
   var totalScoreVal  = "";
@@ -673,7 +674,8 @@ function computeBidRecommendation_(ss, sheet, row, map) {
     recommendation = FFLib.getBidRecommendation(
       titleVal, baseConVal, propCountVal,
       totalScoreVal, bid1Val, bid2Val, bid3Val, bid4Val,
-      bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore
+      bidApiKey, bidJourneyContext, bidNoBoostMaxProp, bidNoBoostMinScore,
+      boostTableVal
     );
   } catch (err) {
     recommendation = err.message;

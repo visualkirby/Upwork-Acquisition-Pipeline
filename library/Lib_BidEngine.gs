@@ -8,20 +8,25 @@
  */
 function getBidRecommendation(jobTitle, baseConnects, proposalCount,
                                totalScore, bid1, bid2, bid3, bid4,
-                               apiKey, journeyContext, noBoostMaxProp, noBoostMinScore) {
-  // The freelancer enters 0 for all four bids when the Apply page has no
-  // boost table, so the job can't be boosted at all. Answered without the
-  // AI, which would otherwise recommend boosting a strong job for 1 Connect.
-  // Some zeros but not all is a real table with empty spots (fewer than 4
-  // people boosted), so that still goes through the rules below.
+                               apiKey, journeyContext, noBoostMaxProp, noBoostMinScore,
+                               boostTable) {
+  // boostTable is Proposal_Generator's Boost_Table: 'None' when the Apply
+  // page has no boost table, 'Shown' when it has one. Four 0 bids used to
+  // mean "no table", but job 153 (2026-10-08) had a table nobody had bid on
+  // yet, also entered as four 0s, and got "no boost option" when 4 Connects
+  // would have ranked it 1st. Blank (rows from before the column existed)
+  // keeps the old all-zero reading. Some zeros but not all is a real table
+  // with empty spots, so that still goes through the rules below.
   var bids = [bid1, bid2, bid3, bid4];
   var allZero = bids.every(function (b) {
     return b !== '' && b !== null && b !== undefined && Number(b) === 0;
   });
-  if (allZero) {
+  var tableState = String(boostTable || '').trim();
+  if (tableState === 'None' || (tableState === '' && allZero)) {
     return 'DECISION: NO BOOST\nBID: ' + baseConnects + ' (no boost)\n' +
-      'REASON: This job has no boost option on Upwork (all four bids are 0).';
+      'REASON: This job has no boost option on Upwork.';
   }
+  var emptyTable = tableState === 'Shown' && allZero;
 
   if (!apiKey) {
     return 'API key not set. Run System Tools > Setup API Key first.';
@@ -51,7 +56,9 @@ function getBidRecommendation(jobTitle, baseConnects, proposalCount,
     'Base connects to submit: ' + baseConnects + '\n' +
     'Current proposal count: ' + proposalCount + ' (if text like "Less than 5", treat as 3)\n' +
     'Job quality score: ' + totalScore + ' out of 1\n' +
-    'Current top bids -- 1st: ' + bid1 + ' connects, 2nd: ' + bid2 + ' connects, 3rd: ' + bid3 + ' connects, 4th: ' + bid4 + ' connects\n\n' +
+    (emptyTable
+      ? 'Current top bids -- none yet. The boost table is shown but empty, so any boost takes 1st place; treat rule 3\'s bid-gap condition as met.\n\n'
+      : 'Current top bids -- 1st: ' + bid1 + ' connects, 2nd: ' + bid2 + ' connects, 3rd: ' + bid3 + ' connects, 4th: ' + bid4 + ' connects\n\n') +
     'DECISION RULES (apply in order, stop at the first that matches):\n' +
     '1. If proposal count is above ' + noBoostMaxProp + ': NO BOOST.\n' +
     '2. If score is below ' + noBoostMinScore + ': NO BOOST.\n' +
@@ -90,7 +97,7 @@ function getBidRecommendation(jobTitle, baseConnects, proposalCount,
       : '';
     if (!text) return 'No response returned.';
 
-    return applyBidMath_(text, baseConnects, bid1, bid2, bid3, bid4);
+    return applyBidMath_(text, baseConnects, bid1, bid2, bid3, bid4, emptyTable);
 
   } catch (err) {
     return 'Request failed: ' + err.message;
@@ -104,7 +111,7 @@ function getBidRecommendation(jobTitle, baseConnects, proposalCount,
  * any); this fills in the exact BID number deterministically from the real
  * bid1-4 values instead of letting the model guess a number.
  */
-function applyBidMath_(aiText, baseConnects, bid1, bid2, bid3, bid4) {
+function applyBidMath_(aiText, baseConnects, bid1, bid2, bid3, bid4, emptyTable) {
   var decisionMatch = aiText.match(/DECISION:\s*(NO BOOST|BOOST TO (?:1ST|2ND|3RD|4TH))/i);
   if (!decisionMatch) return aiText;
 
@@ -130,6 +137,12 @@ function applyBidMath_(aiText, baseConnects, bid1, bid2, bid3, bid4) {
 
   if (decision === 'NO BOOST') {
     bidLine = baseConnects + ' (no boost)';
+  } else if (emptyTable) {
+    // No bids to add 1 to. Upwork prints the minimum on the Apply page
+    // ("Bid N Connects or higher to be ranked in 1st place") and it varies
+    // by job, so point at it instead of guessing a number.
+    decision = 'BOOST TO 1ST';
+    bidLine  = "Upwork's minimum for 1st place, shown on the Apply page (nobody has bid yet, so any boost ranks 1st)";
   } else {
     var place  = decision.replace('BOOST TO ', '');
     var target = Number(targets[place]);

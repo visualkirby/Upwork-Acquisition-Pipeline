@@ -64,7 +64,12 @@ textarea { resize: vertical; min-height: 70px; }
     <div class="step-panel" id="step-1">
       <div class="step-indicator">Step 1 of 4</div>
       <div class="step-title">Bids</div>
-      <div class="step-desc">Enter the top 4 competing bids shown on Upwork.</div>
+      <div class="step-desc">Enter the top 4 competing bids shown on Upwork. If the boost table is there but nobody has bid yet, enter 0 in each and leave the box below unchecked.</div>
+
+      <label class="sub" style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+        <input type="checkbox" id="no-boost-table" onchange="toggleNoBoostTable()">
+        No boost table on the Apply page
+      </label>
 
       <div class="row2">
         <div>
@@ -204,8 +209,21 @@ function clearFields() {
     document.getElementById(id).value = '';
   });
   document.getElementById('proposal-status').value = '';
+  document.getElementById('no-boost-table').checked = false;
+  toggleNoBoostTable();
   showRecommendation('');
   showAnswers('');
+}
+
+// Checked: no boost table, so the bids are 0 and locked. Unchecked: the
+// table is there, even if nobody has bid yet.
+function toggleNoBoostTable() {
+  var none = document.getElementById('no-boost-table').checked;
+  ['bid1', 'bid2', 'bid3', 'bid4'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (none) el.value = '0';
+    el.disabled = none;
+  });
 }
 
 function init() {
@@ -240,6 +258,8 @@ function loadRow() {
       document.getElementById('bid2').value = r.bid2;
       document.getElementById('bid3').value = r.bid3;
       document.getElementById('bid4').value = r.bid4;
+      document.getElementById('no-boost-table').checked = r.boostTable === 'None';
+      toggleNoBoostTable();
       document.getElementById('boost-connects').value = r.boostConnects;
       document.getElementById('additional-questions').value = r.additionalQuestions;
       document.getElementById('proposal-status').value = r.proposalStatus || '';
@@ -266,7 +286,8 @@ function nextFromStep1() {
   var id = discoveryId();
   if (!id) { status('status', 'Select a job first.', 'error'); return; }
 
-  var data = { discoveryId: id, bid1: val('bid1'), bid2: val('bid2'), bid3: val('bid3'), bid4: val('bid4') };
+  var data = { discoveryId: id, bid1: val('bid1'), bid2: val('bid2'), bid3: val('bid3'), bid4: val('bid4'),
+               noBoostTable: document.getElementById('no-boost-table').checked };
 
   document.getElementById('btn-step1-next').disabled = true;
   status('status', 'Saving...', 'loading');

@@ -44,7 +44,7 @@ function RESET_TO_AFTER_SETUP() {
     'Discovery_ID', 'Date', 'Job_Type', 'Recommended_Template', 'Hook_Version', 'CTA_Version',
     'Bid_1st', 'Bid_2nd', 'Bid_3rd', 'Bid_4th', 'Boost_Connects', 'Total_Connects_Spent',
     'Bid_Recommendation', 'Additional_Questions', 'AI_Generated_Proposal', 'Additional_Answers',
-    'Proposal_Status', 'Proposal_Sent_Date', 'Proposal_Skip_Date', 'Notes'
+    'Proposal_Status', 'Proposal_Sent_Date', 'Proposal_Skip_Date', 'Notes', 'Boost_Table'
   ]);
   // Discovery_ID/Date are static values written by syncProposalGenerator_
   // (28_Proposal_Sync.gs), so they're cleared above. Job_Title/Client_Name/

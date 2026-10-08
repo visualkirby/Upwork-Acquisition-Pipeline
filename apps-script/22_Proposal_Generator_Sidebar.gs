@@ -97,6 +97,7 @@ function proposal_getRowDetails(discoveryId) {
     proposalStatus:      getCellValue_(sheet, row, map, ['Proposal_Status']),
     notes:               getCellValue_(sheet, row, map, ['Notes']),
     bidRecommendation:   getCellValue_(sheet, row, map, ['Bid_Recommendation']),
+    boostTable:          getCellValue_(sheet, row, map, ['Boost_Table']),
     // Questions the client wrote into the description itself (Step 3 shows
     // them; the cover-letter draft answers them).
     descriptionQuestions: FFLib.extractDescriptionQuestions(getCellValue_(sheet, row, map, ['Description']))
@@ -116,9 +117,16 @@ function proposal_saveBids(data) {
   var sheet = ss.getSheetByName('Proposal_Generator');
   if (!sheet) return { ok: false, message: 'Proposal_Generator sheet not found.' };
 
-  var map = getHeaderMap_(sheet);
+  var map = ensureBoostTableColumn_(sheet);
   var row = findProposalGeneratorRowByDiscoveryId_(sheet, map, data.discoveryId);
   if (!row) return { ok: false, message: 'Could not find that job in Proposal_Generator. Refresh and try again.' };
+
+  // "No boost table" fills the bids with 0 so the row reads the same as
+  // before; Boost_Table is what tells that apart from an empty table.
+  if (data.noBoostTable) {
+    data.bid1 = data.bid2 = data.bid3 = data.bid4 = '0';
+  }
+  setCellValue_(sheet, row, map, ['Boost_Table'], data.noBoostTable ? 'None' : 'Shown');
 
   if (data.bid1 !== '') setCellValue_(sheet, row, map, ['Bid_1st'], Number(data.bid1));
   if (data.bid2 !== '') setCellValue_(sheet, row, map, ['Bid_2nd'], Number(data.bid2));
@@ -128,6 +136,17 @@ function proposal_saveBids(data) {
   if (data.bid4 !== '') computeBidRecommendation_(ss, sheet, row, map);
 
   return { ok: true, bidRecommendation: getCellValue_(sheet, row, map, ['Bid_Recommendation']) };
+}
+
+// Boost_Table arrived after sheets were already in use, so it's appended as
+// the last column the first time a bid is saved on a sheet without it. New
+// setups get it from ensurePipelineSheets_ (00_Setup_Wizard.gs). Returns the
+// refreshed header map.
+function ensureBoostTableColumn_(sheet) {
+  var map = getHeaderMap_(sheet);
+  if (getCol_(map, ['Boost_Table'])) return map;
+  sheet.getRange(1, sheet.getLastColumn() + 1).setValue('Boost_Table').setFontWeight('bold');
+  return getHeaderMap_(sheet);
 }
 
 // Step 2: Boost Connects (optional). Recalculates Total_Connects_Spent and
