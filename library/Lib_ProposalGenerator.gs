@@ -429,10 +429,17 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   var forcedProject = mandatoryProject ? String(mandatoryProject).trim() : '';
   var cred = forcedProject || credentialHint || (portfolioParts.length > 0 ? portfolioParts[0] : 'a portfolio project');
 
+  // Once the named project's own description is found, the rest of the
+  // portfolio stays out of the prompt. With all of it in, the job 151 draft
+  // (2026-10-08) credited the Support-Team tracker with the Looker Studio
+  // project's "performance scoring engine". The full portfolio is only the
+  // fallback when the name isn't found in it.
+  var namedBlock = namedProjectBlock_(cred, portfolioAll);
+
   var prompt =
     'You are writing an Upwork proposal for a freelancer named ' + (freelancerName || 'the freelancer') + '. ' +
     'FREELANCER PROFILE: ' + journeyContext + ' ' +
-    (portfolioAll ? 'FULL PORTFOLIO (for context only): ' + portfolioAll + '. ' : '') +
+    (portfolioAll && !namedBlock ? 'FULL PORTFOLIO (for context only): ' + portfolioAll + '. ' : '') +
     'OVERALL TONE GUIDANCE: ' + (proposalTone || 'Direct') + '. ' +
     'STRICT RULES -- violating any rule makes the proposal unusable: ' +
     '1. Between ' + lengthSpec.words + ' words total (roughly ' + lengthSpec.chars + '). ' +
@@ -442,7 +449,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     '5. First sentence MUST reference a specific detail from the job description -- not a generic observation. ' +
     'Write the proposal in full; do not begin mid-sentence and capitalize the first word. ' +
     '6. You MUST reference this exact portfolio project by name in the proposal: ' + cred + ' -- do not substitute or add a different project. ' +
-    namedProjectBlock_(cred, portfolioAll) + TASK_MATCH_RULE_ + ' ' +
+    namedBlock + TASK_MATCH_RULE_ + ' ' +
     '7. End with exactly one direct question. No offers to help. ' +
     'STRATEGIC ANGLE: ' + (angle || 'Lead with the specific client problem, not credentials.') + ' ' +
     'TONE: ' + (tone || 'Direct') + '. ' +
