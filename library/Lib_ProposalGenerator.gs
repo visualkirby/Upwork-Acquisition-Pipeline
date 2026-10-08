@@ -333,7 +333,7 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
     VOICE_RULES_;
 
   var payload = {
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1-mini',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 400,
     temperature: 0.2
@@ -468,8 +468,8 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   // breaks into one event, both from facts given correctly in the prompt.
   // gpt-4.1-mini, up from gpt-4o-mini (2026-10-08): with every fact correct
   // in the prompt, 4o-mini still invented how a bug was found ("by testing
-  // the connection"). The other generators stay on 4o-mini until this is
-  // compared on real drafts.
+  // the connection"). The 151/153 redrafts on 4.1-mini had no invented
+  // details, so all three generators in this file now use it.
   var payload = {
     model: 'gpt-4.1-mini',
     messages: [{ role: 'user', content: prompt }],
@@ -546,7 +546,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     VOICE_RULES_;
 
   var payload = {
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1-mini',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: lengthSpec.maxTokens + questionTokenAllowance_(description),
     temperature: 0.7
