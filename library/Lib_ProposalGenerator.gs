@@ -456,11 +456,14 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     GROUNDING_RULES_ +
     VOICE_RULES_;
 
+  // 0.3, down from 0.5: at 0.5 the job 151 draft (2026-10-08) turned the
+  // Zendesk client into "a Freshdesk client" and merged two separate MFA
+  // breaks into one event, both from facts given correctly in the prompt.
   var payload = {
     model: 'gpt-4o-mini',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: lengthSpec.maxTokens + questionTokenAllowance_(description),
-    temperature: 0.5
+    temperature: 0.3
   };
   var sources = [journeyContext, portfolioAll, cred, jobTitle, toolDetected, jobType, description];
 
