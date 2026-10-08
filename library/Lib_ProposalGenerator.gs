@@ -466,8 +466,12 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
   // 0.3, down from 0.5: at 0.5 the job 151 draft (2026-10-08) turned the
   // Zendesk client into "a Freshdesk client" and merged two separate MFA
   // breaks into one event, both from facts given correctly in the prompt.
+  // gpt-4.1-mini, up from gpt-4o-mini (2026-10-08): with every fact correct
+  // in the prompt, 4o-mini still invented how a bug was found ("by testing
+  // the connection"). The other generators stay on 4o-mini until this is
+  // compared on real drafts.
   var payload = {
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1-mini',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: lengthSpec.maxTokens + questionTokenAllowance_(description),
     temperature: 0.3
