@@ -1,8 +1,9 @@
 /**
  * ============================================================
  * 12. SESSION MANAGEMENT
- * START_SESSION: prompts for Session ID and keywords, stores
- *   state in PropertiesService, confirms session target.
+ * START_SESSION: prompts for Session ID, then opens the keyword
+ *   picker (KeywordPicker.html), which calls session_begin to store
+ *   state in PropertiesService and confirm the session target.
  * END_SESSION: computes all session stats, writes to Session_Log,
  *   updates Keyword_Search_List last-searched and yield.
  * ============================================================
@@ -38,19 +39,64 @@ function START_SESSION() {
 
   var sessionId = idResponse.getResponseText().trim().toUpperCase() || suggestedId;
 
-  var kwResponse = ui.prompt(
-    'Start Session -- Step 3 of 3',
-    'Which keywords are you searching this session?\n' +
-    '(Enter comma-separated, e.g. Power BI Sales Dashboard, Excel Finance Report)',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (kwResponse.getSelectedButton() !== ui.Button.OK) return;
+  var connectsLine = balance.from !== undefined
+    ? 'Connects: ' + balance.to + ' (synced from Upwork, was ' + balance.from + ')\n'
+    : 'Connects: ' + (Number(getConnectsHelperValue_(ss, 'Current_Connect_Balance')) || 0) + '\n';
 
-  var keywords = kwResponse.getResponseText().trim();
-  if (!keywords) {
-    ui.alert('Please enter at least one keyword.');
-    return;
+  // Step 3 is the keyword picker dialog. showModalDialog doesn't block, so
+  // the ID and Connects line wait in properties until the picker calls
+  // session_begin.
+  prop.setProperties({
+    'SESSION_PENDING_ID':       sessionId,
+    'SESSION_PENDING_CONNECTS': connectsLine
+  });
+
+  var html = HtmlService.createHtmlOutputFromFile('KeywordPicker')
+    .setWidth(680)
+    .setHeight(560);
+  ui.showModalDialog(html, 'Start Session -- Step 3 of 3: Pick keywords');
+}
+
+function session_getPickerContext() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var prop = PropertiesService.getScriptProperties();
+  return {
+    sessionId: prop.getProperty('SESSION_PENDING_ID') || '',
+    keywords:  getKeywordPickerOptions_(ss)
+  };
+}
+
+// Called by the picker's Start Session button. selected is the checked
+// Search_Query values; oneOffText is the comma-separated one-off box. Each
+// one-off is added to Keyword_Search_List (and Keyword_Strategy) so it gets
+// Last_Searched and yield tracking like any other keyword.
+function session_begin(selected, oneOffText) {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var ui   = SpreadsheetApp.getUi();
+  var prop = PropertiesService.getScriptProperties();
+
+  if (prop.getProperty('SESSION_ACTIVE') === 'true') {
+    throw new Error('Session ' + prop.getProperty('SESSION_ID') + ' is already active. End it first.');
   }
+  var sessionId = prop.getProperty('SESSION_PENDING_ID');
+  if (!sessionId) throw new Error('Run System Tools > Start Session again.');
+  var connectsLine = prop.getProperty('SESSION_PENDING_CONNECTS') || '';
+
+  var oneOffs = String(oneOffText || '').split(',')
+    .map(function (k) { return k.trim(); })
+    .filter(function (k) { return k !== ''; });
+
+  var seen = {};
+  var all  = (selected || []).concat(oneOffs).filter(function (k) {
+    var key = String(k).trim().toLowerCase();
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+  if (all.length === 0) throw new Error('Pick at least one keyword.');
+
+  var added    = addKeywordsToSearchList_(ss, oneOffs);
+  var keywords = all.join(', ');
 
   var discoverySheet = ss.getSheetByName('Job_Discovery');
   var startRowCount  = discoverySheet ? Math.max(discoverySheet.getLastRow() - 1, 0) : 0;
@@ -63,17 +109,16 @@ function START_SESSION() {
     'SESSION_START_ROW_COUNT':  String(startRowCount),
     'SESSION_DUPE_COUNT':       '0'
   });
+  prop.deleteProperty('SESSION_PENDING_ID');
+  prop.deleteProperty('SESSION_PENDING_CONNECTS');
 
   var yieldTarget = parseInt(getSettings_()['Session_Yield_Target']) || 8;
-
-  var connectsLine = balance.from !== undefined
-    ? 'Connects: ' + balance.to + ' (synced from Upwork, was ' + balance.from + ')\n'
-    : 'Connects: ' + (Number(getConnectsHelperValue_(ss, 'Current_Connect_Balance')) || 0) + '\n';
 
   ui.alert(
     'Session ' + sessionId + ' started.\n\n' +
     connectsLine +
     'Keywords: ' + keywords + '\n' +
+    (added.length ? 'Added to Keyword_Search_List: ' + added.join(', ') + '\n' : '') +
     'Start time: ' + formatTime_(new Date()) + '\n\n' +
     'Session target: ' + yieldTarget + ' unique new jobs.\n' +
     'Go search Upwork -- every job you log will be tracked automatically.'
@@ -86,6 +131,129 @@ function START_SESSION() {
   );
 
   openJobDiscoverySidebar_();
+}
+
+// One row per Keyword_Search_List keyword, joined to Keyword_Intelligence's
+// Total_Jobs / Priority_Score / Status. lastMs and daysAgo are null for a
+// keyword never searched (google.script.run can't return Date objects).
+function getKeywordPickerOptions_(ss) {
+  var sl = ss.getSheetByName('Keyword_Search_List');
+  if (!sl || sl.getLastRow() < 2) return [];
+  var slMap = getHeaderMap_(sl);
+  var qCol  = getCol_(slMap, ['Search_Query']);
+  var lsCol = getCol_(slMap, ['Last_Searched']);
+  if (!qCol) return [];
+
+  var intel = {};
+  var ki = ss.getSheetByName('Keyword_Intelligence');
+  if (ki && ki.getLastRow() > 1) {
+    var kiMap = getHeaderMap_(ki);
+    var kCol  = getCol_(kiMap, ['Keyword']);
+    var jCol  = getCol_(kiMap, ['Total_Jobs']);
+    var pCol  = getCol_(kiMap, ['Priority_Score']);
+    var sCol  = getCol_(kiMap, ['Status']);
+    if (kCol) {
+      ki.getRange(2, 1, ki.getLastRow() - 1, ki.getLastColumn()).getValues().forEach(function (r) {
+        var key = String(r[kCol - 1]).trim().toLowerCase();
+        if (!key) return;
+        var p = pCol ? r[pCol - 1] : '';
+        intel[key] = {
+          jobs:     jCol ? (Number(r[jCol - 1]) || 0) : 0,
+          priority: (p === '' || isNaN(Number(p))) ? null : Number(p),
+          status:   sCol ? String(r[sCol - 1]).trim() : ''
+        };
+      });
+    }
+  }
+
+  var now  = new Date().getTime();
+  var seen = {};
+  var out  = [];
+  sl.getRange(2, 1, sl.getLastRow() - 1, sl.getLastColumn()).getValues().forEach(function (r) {
+    var kw  = String(r[qCol - 1]).trim();
+    var key = kw.toLowerCase();
+    if (!kw || seen[key]) return;
+    seen[key] = true;
+    var ls     = lsCol ? r[lsCol - 1] : '';
+    var lastMs = (ls instanceof Date && !isNaN(ls.getTime())) ? ls.getTime() : null;
+    var info   = intel[key] || { jobs: 0, priority: null, status: '' };
+    out.push({
+      keyword:   kw,
+      lastMs:    lastMs,
+      daysAgo:   lastMs === null ? null : Math.floor((now - lastMs) / 86400000),
+      jobs:      info.jobs,
+      priority:  info.priority,
+      status:    info.status,
+      suggested: ''
+    });
+  });
+
+  markSuggestedKeywords_(out);
+  return out;
+}
+
+// Tags one 'proven' and one 'stale' keyword so sessions rotate instead of
+// repeating the top Priority_Score pair. Proven: highest Priority_Score that
+// wasn't in the most recent session (Last_Searched within 12 hours of the
+// newest stamp). Stale: never searched first, then the oldest Last_Searched,
+// Priority_Score breaking ties. Status "Drop" is never suggested.
+function markSuggestedKeywords_(list) {
+  var latest = 0;
+  list.forEach(function (k) { if (k.lastMs && k.lastMs > latest) latest = k.lastMs; });
+  var recentCutoff = latest - 12 * 3600000;
+  var isRecent = function (k) { return latest > 0 && k.lastMs !== null && k.lastMs >= recentCutoff; };
+
+  var eligible = list.filter(function (k) { return k.status !== 'Drop' && !isRecent(k); });
+
+  var proven = eligible
+    .filter(function (k) { return k.priority !== null; })
+    .sort(function (a, b) { return b.priority - a.priority; })[0];
+  if (proven) proven.suggested = 'proven';
+
+  var stale = eligible
+    .filter(function (k) { return k !== proven; })
+    .sort(function (a, b) {
+      var am = a.lastMs === null ? -1 : a.lastMs;
+      var bm = b.lastMs === null ? -1 : b.lastMs;
+      if (am !== bm) return am - bm;
+      return (b.priority || 0) - (a.priority || 0);
+    })[0];
+  if (stale) stale.suggested = 'stale';
+}
+
+// Appends keywords not already in Keyword_Search_List (case-insensitive),
+// filling Tool and Search_Query the way Generate Keyword Strategy does, and
+// creates each one's Keyword_Strategy row. Script writes don't fire the
+// KEYWORD_SEARCH_LIST edit trigger, so ensureKeywordStrategyRow_ is called
+// directly. Returns the keywords actually added.
+function addKeywordsToSearchList_(ss, keywords) {
+  var sl = ss.getSheetByName('Keyword_Search_List');
+  if (!sl || !keywords.length) return [];
+  var slMap   = getHeaderMap_(sl);
+  var qCol    = getCol_(slMap, ['Search_Query']);
+  var toolCol = getCol_(slMap, ['Tool']);
+  if (!qCol) return [];
+
+  var existing = {};
+  if (sl.getLastRow() > 1) {
+    sl.getRange(2, qCol, sl.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      var key = String(r[0]).trim().toLowerCase();
+      if (key) existing[key] = true;
+    });
+  }
+
+  var added = [];
+  keywords.forEach(function (kw) {
+    var key = kw.toLowerCase();
+    if (existing[key]) return;
+    existing[key] = true;
+    var row = getLastRealRow_(sl) + 1;
+    if (toolCol) sl.getRange(row, toolCol).setValue(kw);
+    sl.getRange(row, qCol).setValue(kw);
+    ensureKeywordStrategyRow_(ss, kw);
+    added.push(kw);
+  });
+  return added;
 }
 
 

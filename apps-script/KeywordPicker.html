@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Google Sans', Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+.wrap { display: flex; flex-direction: column; height: 100vh; padding: 4px 4px 0; }
+
+.top-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 12px; }
+.step-desc { font-size: 12px; color: #555; line-height: 1.5; }
+.sort { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #333; font-weight: 600; white-space: nowrap; }
+
+select, input[type=text] {
+  padding: 7px 9px; border: 1px solid #d0d0d0; border-radius: 6px;
+  font-size: 12px; color: #1a1a2e; outline: none; font-family: inherit;
+}
+select:focus, input:focus { border-color: #03a6a5; }
+
+.list { flex: 1; overflow-y: auto; border: 1px solid #e3e3e3; border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; }
+th { position: sticky; top: 0; background: #f4f7fa; color: #05467c; font-size: 11px; font-weight: 700;
+     text-align: left; padding: 7px 8px; border-bottom: 1px solid #e3e3e3; }
+td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px; }
+tr.row { cursor: pointer; }
+tr.row:hover { background: #f7fbfb; }
+tr.checked { background: #e9f7f7; }
+td.num, th.num { text-align: right; }
+td.muted { color: #888; }
+
+.tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 10px; }
+.tag-proven { background: #e3eef7; color: #05467c; }
+.tag-stale  { background: #fbf1dc; color: #c78a03; }
+
+.oneoff { margin-top: 10px; }
+.oneoff label { display: block; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; }
+.oneoff input { width: 100%; }
+.hint { font-size: 11px; color: #777; margin-top: 3px; }
+
+.footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
+.count { font-size: 12px; color: #555; }
+.btn { padding: 9px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-primary { background: #03a6a5; color: #fff; }
+.btn-primary:hover { background: #028888; }
+.btn-primary:disabled { background: #bbb; cursor: not-allowed; }
+.btn-secondary { background: #eee; color: #333; margin-right: 8px; }
+
+.status { margin-top: 8px; font-size: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.5; }
+.error   { background: #fdecea; color: #b71c1c; }
+.loading { background: #e3f2fd; color: #1565c0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top-row">
+    <div class="step-desc" id="desc">Loading keywords...</div>
+    <div class="sort">
+      Sort
+      <select id="sort" onchange="render()">
+        <option value="suggested">Suggested</option>
+        <option value="priority">Priority</option>
+        <option value="recent">Least recent</option>
+        <option value="az">A-Z</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="list">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Keyword</th>
+          <th>Last searched</th>
+          <th class="num">Jobs</th>
+          <th class="num">Priority</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="oneoff">
+    <label for="oneoff">One-off keyword</label>
+    <input type="text" id="oneoff" placeholder="e.g. Power Automate Approvals" oninput="updateCount()">
+    <div class="hint">Comma-separate more than one. Each gets added to Keyword_Search_List.</div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="footer">
+    <div class="count" id="count">0 selected</div>
+    <div>
+      <button class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button class="btn btn-primary" id="btn-start" onclick="start()" disabled>Start Session</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var keywords = [];
+var checked  = {};
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function lastLabel(k) {
+  if (k.daysAgo === null) return 'never';
+  if (k.daysAgo === 0) return 'today';
+  if (k.daysAgo === 1) return '1 day';
+  return k.daysAgo + ' days';
+}
+
+// Never-searched sorts as oldest.
+function ageKey(k) { return k.lastMs === null ? -1 : k.lastMs; }
+function prio(k) { return k.priority === null ? -1 : k.priority; }
+
+function sorted() {
+  var mode = document.getElementById('sort').value;
+  var list = keywords.slice();
+  if (mode === 'priority') {
+    list.sort(function (a, b) { return prio(b) - prio(a); });
+  } else if (mode === 'recent') {
+    list.sort(function (a, b) { return ageKey(a) - ageKey(b) || prio(b) - prio(a); });
+  } else if (mode === 'az') {
+    list.sort(function (a, b) { return a.keyword.toLowerCase() < b.keyword.toLowerCase() ? -1 : 1; });
+  } else {
+    var rank = { proven: 0, stale: 1 };
+    list.sort(function (a, b) {
+      var ra = a.suggested ? rank[a.suggested] : 2;
+      var rb = b.suggested ? rank[b.suggested] : 2;
+      return ra - rb || ageKey(a) - ageKey(b) || prio(b) - prio(a);
+    });
+  }
+  return list;
+}
+
+function render() {
+  var html = sorted().map(function (k) {
+    var on  = !!checked[k.keyword];
+    var tag = k.suggested === 'proven' ? '<span class="tag tag-proven">proven</span>'
+            : k.suggested === 'stale'  ? '<span class="tag tag-stale">stale</span>' : '';
+    var status = k.status || (k.jobs === 0 ? 'New' : '');
+    return '<tr class="row' + (on ? ' checked' : '') + '" data-kw="' + esc(k.keyword) + '">' +
+      '<td><input type="checkbox"' + (on ? ' checked' : '') + '></td>' +
+      '<td>' + esc(k.keyword) + '</td>' +
+      '<td' + (k.daysAgo === null ? ' class="muted"' : '') + '>' + lastLabel(k) + '</td>' +
+      '<td class="num">' + k.jobs + '</td>' +
+      '<td class="num">' + (k.priority === null ? '<span class="muted">--</span>' : k.priority.toFixed(2)) + '</td>' +
+      '<td>' + esc(status) + '</td>' +
+      '<td>' + tag + '</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('rows').innerHTML = html;
+  updateCount();
+}
+
+document.getElementById('rows').addEventListener('click', function (e) {
+  var tr = e.target.closest('tr.row');
+  if (!tr) return;
+  var kw = tr.getAttribute('data-kw');
+  if (checked[kw]) delete checked[kw]; else checked[kw] = true;
+  render();
+});
+
+function oneOffCount() {
+  return document.getElementById('oneoff').value.split(',')
+    .filter(function (s) { return s.trim() !== ''; }).length;
+}
+
+function updateCount() {
+  var n = Object.keys(checked).length + oneOffCount();
+  document.getElementById('count').textContent = n + ' selected';
+  document.getElementById('btn-start').disabled = n === 0;
+}
+
+function showStatus(msg, type) {
+  document.getElementById('status').innerHTML = '<div class="status ' + type + '">' + esc(msg) + '</div>';
+}
+
+function start() {
+  var btn = document.getElementById('btn-start');
+  btn.disabled = true;
+  showStatus('Starting session...', 'loading');
+  // Keep the list's own order so the session's keyword string reads the
+  // same way the picker showed it.
+  var selected = sorted()
+    .filter(function (k) { return checked[k.keyword]; })
+    .map(function (k) { return k.keyword; });
+  google.script.run
+    .withSuccessHandler(function () { google.script.host.close(); })
+    .withFailureHandler(function (err) {
+      showStatus(err.message || String(err), 'error');
+      btn.disabled = false;
+    })
+    .session_begin(selected, document.getElementById('oneoff').value);
+}
+
+google.script.run
+  .withSuccessHandler(function (ctx) {
+    keywords = ctx.keywords || [];
+    keywords.forEach(function (k) { if (k.suggested) checked[k.keyword] = true; });
+    document.getElementById('desc').textContent =
+      'Session ' + ctx.sessionId + '. One proven and one stale keyword are pre-checked. Change them freely.';
+    render();
+  })
+  .withFailureHandler(function (err) {
+    document.getElementById('desc').textContent = '';
+    showStatus(err.message || String(err), 'error');
+  })
+  .session_getPickerContext();
+</script>
+</body>
+</html>
