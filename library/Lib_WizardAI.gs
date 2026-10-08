@@ -82,13 +82,16 @@ function generateNicheTemplates(description, tools, background, apiKey) {
     'these keys: ' +
     '"jobType" (1-3 word category name), ' +
     '"notes" (one sentence describing what qualifies a job for this category -- used to help an AI classifier route jobs correctly), ' +
-    '"angle" (one sentence: what a proposal opener should focus on for this category), ' +
-    '"tone" (one word, e.g. Direct, Confident, Reassuring), ' +
-    '"ctaStyle" (one word: Question or Offer), ' +
-    '"exampleOutput" (a 2-sentence generic example structure for how a proposal opener and closing question should sound for this category -- do not reference a specific client). ' +
+    '"angle" (one plain sentence telling the writer to open with the client\'s specific problem for this ' +
+    'category, then name one fact from the portfolio project the proposal cites; never tell the writer to ' +
+    'describe their own skills, expertise, or passion), ' +
+    '"exampleOutput" (2 to 3 short sentences in a practitioner\'s plain voice showing how an opener and a ' +
+    'closing question sound for this category, ending with one specific question; no claims of experience, ' +
+    'no project facts, no client names). ' +
     'Specialty: ' + description.substring(0, 500) + '. ' +
     'Tools: ' + (tools || 'not specified') + '. ' +
-    'Background: ' + (background || 'not specified');
+    'Background: ' + (background || 'not specified') + '.' +
+    VOICE_RULES_;
 
   try {
     var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
@@ -96,7 +99,7 @@ function generateNicheTemplates(description, tools, background, apiKey) {
       contentType: 'application/json',
       headers: { 'Authorization': 'Bearer ' + apiKey },
       payload: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 900,
         temperature: 0.4
@@ -117,6 +120,14 @@ function generateNicheTemplates(description, tools, background, apiKey) {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return { ok: false, message: 'No categories returned.' };
     }
+
+    // Tone and CTA are fixed, not the AI's call: on 2026-10-08 the generated
+    // rows picked "Creative", "Confident" and "Offer", and the proposal
+    // prompts carried those into drafts that read as AI-written.
+    parsed.forEach(function (t) {
+      t.tone     = 'Direct';
+      t.ctaStyle = 'Question';
+    });
 
     return { ok: true, templates: parsed };
   } catch (e) {
