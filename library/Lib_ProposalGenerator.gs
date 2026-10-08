@@ -85,8 +85,72 @@ var GROUNDING_RULES_ =
   'Never claim experience with a kind of work ("my experience reorganizing SharePoint ' +
   'environments") unless a project or the background shows that exact work -- describe what the ' +
   'named project actually did instead. ' +
+  'Never say or imply familiarity with a platform, tool, or industry the job names (for example ' +
+  'Azure or Copilot Studio) unless it appears in the tools list or a project. If the job\'s main ' +
+  'tool is not there, say so in one plain sentence and name the closest real work. ' +
   'Never state a price, rate, budget, timeline, or availability -- write [YOUR RATE], [TIMELINE], ' +
   'or [AVAILABILITY] where one is needed so the freelancer fills it in.';
+
+// Phrases that made real drafts read as AI-written (jobs 151 and 153 on
+// 2026-10-08: "keen eye for detail", "aligns perfectly", "robust system",
+// "dynamic environment"). The same list feeds the prompt and the
+// after-generation check, so a phrase the model slips in anyway gets flagged.
+var BANNED_PHRASES_ = [
+  'keen eye', 'aligns perfectly', 'robust', 'seamless', 'leverage', 'honed', 'well-versed',
+  'actionable insights', 'data-driven decision', 'i am eager', "i'm eager", 'i am excited',
+  "i'm excited", 'dynamic environment', 'tailor', 'deep understanding', 'passionate',
+  'look no further', 'perfect fit', 'delve'
+];
+
+var VOICE_RULES_ =
+  ' VOICE RULES: Write like a practitioner typing a quick reply. Plain words, short sentences, ' +
+  'varied sentence length. Never use these words or phrases: ' + BANNED_PHRASES_.join(', ') + '. ' +
+  'No em dashes. No lists of three adjectives. Do not restate the client\'s request back to them.';
+
+// What to pull from the named project. Job 151 (debug a Power Automate flow)
+// got the tracker's feature list when the project's own description held a
+// real debugging story that fit the job.
+var TASK_MATCH_RULE_ =
+  ' From the named project\'s details, use the one fact that matches the kind of work this job ' +
+  'is: for a fix, debug, or troubleshooting job, a problem the project hit and how it was found ' +
+  'and fixed; for a build job, what the project does. Use only facts written in those details.';
+
+// The named project's own description, cut out of the full portfolio text
+// so it sits next to the rule that names it. Portfolio text comes in two
+// shapes: "Name: desc; Name: desc" (Portfolio_All) and "(1) Name: desc (2)
+// ... Tools used: ..." (getPortfolioContext). '' when the name isn't found.
+function namedProjectDetails_(projectName, portfolioText) {
+  var name = String(projectName || '').trim();
+  var text = String(portfolioText || '');
+  if (!name || !text) return '';
+  var start = text.indexOf(name + ': ');
+  if (start < 0) return '';
+  var rest = text.substring(start + name.length + 2);
+  var end  = rest.length;
+  [/;\s/, /\s\(\d+\)\s/, /\sTools used:/].forEach(function (re) {
+    var m = rest.search(re);
+    if (m >= 0 && m < end) end = m;
+  });
+  return rest.substring(0, end).trim();
+}
+
+function namedProjectBlock_(projectName, portfolioText) {
+  var details = namedProjectDetails_(projectName, portfolioText);
+  return details ? ' NAMED PROJECT DETAILS (' + projectName + '): ' + details + '.' : '';
+}
+
+// Deterministic check after generation, same shape as the number check:
+// a banned phrase that got through goes on a warning line above the draft.
+function flagBannedPhrases_(text) {
+  var draft = String(text || '');
+  if (!draft || /^(API error|Request failed|API key not set|No response)/.test(draft)) return draft;
+  var lower = draft.toLowerCase();
+  var hits  = BANNED_PHRASES_.filter(function (p) { return lower.indexOf(p) >= 0; });
+  if (draft.indexOf('—') >= 0) hits.push('em dash');
+  if (hits.length === 0) return draft;
+  return '⚠ CHECK BEFORE SENDING: reads as AI-written ("' + hits.join('", "') +
+    '"). Reword, then delete this line.\n\n' + draft;
+}
 
 // Questions and instructions a client wrote into the job description for
 // applicants to answer in the proposal itself ("please answer these in your
@@ -265,7 +329,8 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
     'that is not explicitly listed, even if it seems like a typical one for this kind of job. ' +
     'If only one question is listed, return only that one question and its answer. ' +
     'QUESTIONS:\n' + questions + '\n' +
-    GROUNDING_RULES_;
+    GROUNDING_RULES_ +
+    VOICE_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
@@ -288,7 +353,7 @@ function generateAdditionalAnswers(questions, jobTitle, description, portfolioCo
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
+      ? flagBannedPhrases_(flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources))
       : 'No response returned.';
 
   } catch (err) {
@@ -377,6 +442,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     '5. First sentence MUST reference a specific detail from the job description -- not a generic observation. ' +
     'Write the proposal in full; do not begin mid-sentence and capitalize the first word. ' +
     '6. You MUST reference this exact portfolio project by name in the proposal: ' + cred + ' -- do not substitute or add a different project. ' +
+    namedProjectBlock_(cred, portfolioAll) + TASK_MATCH_RULE_ + ' ' +
     '7. End with exactly one direct question. No offers to help. ' +
     'STRATEGIC ANGLE: ' + (angle || 'Lead with the specific client problem, not credentials.') + ' ' +
     'TONE: ' + (tone || 'Direct') + '. ' +
@@ -387,7 +453,8 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     'JOB TYPE: ' + (jobType || 'dashboard project') + '. ' +
     'JOB DESCRIPTION: ' + description.substring(0, 1200) +
     descriptionQuestionsBlock_(description) +
-    GROUNDING_RULES_;
+    GROUNDING_RULES_ +
+    VOICE_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
@@ -410,7 +477,7 @@ function generateAIProposal(jobTitle, description, toolDetected, jobType, templa
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
+      ? flagBannedPhrases_(flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources))
       : 'No response returned.';
 
   } catch (err) {
@@ -435,7 +502,8 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
   var forcedProject = mandatoryProject ? String(mandatoryProject).trim() : '';
   var secondParagraphRule = forcedProject
     ? 'Second paragraph: connect this specific portfolio project, by name -- ' + forcedProject +
-      ' -- directly to what this client needs. Reference that project and no other. Be concrete. '
+      ' -- directly to what this client needs. Reference that project and no other. Be concrete.' +
+      namedProjectBlock_(forcedProject, portfolioContext) + TASK_MATCH_RULE_ + ' '
     : 'Second paragraph: connect one of the freelancer\'s portfolio projects or specific experience directly to what this client needs. Be concrete, not vague. ';
 
   var prompt =
@@ -460,7 +528,8 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     'Found via keyword: ' + (keywordSearch || 'not noted') + '. ' +
     'Description: ' + String(description).substring(0, 1800) +
     descriptionQuestionsBlock_(description) +
-    GROUNDING_RULES_;
+    GROUNDING_RULES_ +
+    VOICE_RULES_;
 
   var payload = {
     model: 'gpt-4o-mini',
@@ -483,7 +552,7 @@ function generateAiProposal(jobTitle, description, toolDetected, jobType, propos
     if (data.error) return 'API error: ' + data.error.message;
 
     return data.choices && data.choices[0]
-      ? flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources)
+      ? flagBannedPhrases_(flagUngroundedNumbers_(data.choices[0].message.content.trim(), sources))
       : 'No response returned.';
 
   } catch (err) {
