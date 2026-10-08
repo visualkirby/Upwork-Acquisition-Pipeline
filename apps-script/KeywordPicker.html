@@ -110,11 +110,18 @@ function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Calendar days, not 24-hour blocks, so last night's search reads
+// "yesterday" rather than "today".
 function lastLabel(k) {
-  if (k.daysAgo === null) return 'never';
-  if (k.daysAgo === 0) return 'today';
-  if (k.daysAgo === 1) return '1 day';
-  return k.daysAgo + ' days';
+  if (k.lastMs === null) return 'never';
+  var then  = new Date(k.lastMs);
+  var today = new Date();
+  var days  = Math.round(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()) -
+     new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return days + ' days';
 }
 
 // Never-searched sorts as oldest.
@@ -150,7 +157,7 @@ function render() {
     return '<tr class="row' + (on ? ' checked' : '') + '" data-kw="' + esc(k.keyword) + '">' +
       '<td><input type="checkbox"' + (on ? ' checked' : '') + '></td>' +
       '<td>' + esc(k.keyword) + '</td>' +
-      '<td' + (k.daysAgo === null ? ' class="muted"' : '') + '>' + lastLabel(k) + '</td>' +
+      '<td' + (k.lastMs === null ? ' class="muted"' : '') + '>' + lastLabel(k) + '</td>' +
       '<td class="num">' + k.jobs + '</td>' +
       '<td class="num">' + (k.priority === null ? '<span class="muted">--</span>' : k.priority.toFixed(2)) + '</td>' +
       '<td>' + esc(status) + '</td>' +
@@ -204,7 +211,18 @@ function start() {
 
 google.script.run
   .withSuccessHandler(function (ctx) {
-    keywords = ctx.keywords || [];
+    // google.script.run drops null-valued properties, so a never-searched or
+    // unscored keyword arrives with these missing; put the nulls back.
+    keywords = (ctx.keywords || []).map(function (k) {
+      return {
+        keyword:   k.keyword,
+        lastMs:    k.lastMs == null ? null : k.lastMs,
+        jobs:      k.jobs || 0,
+        priority:  k.priority == null ? null : k.priority,
+        status:    k.status || '',
+        suggested: k.suggested || ''
+      };
+    });
     keywords.forEach(function (k) { if (k.suggested) checked[k.keyword] = true; });
     document.getElementById('desc').textContent =
       'Session ' + ctx.sessionId + '. One proven and one stale keyword are pre-checked. Change them freely.';

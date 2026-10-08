@@ -134,7 +134,7 @@ function session_begin(selected, oneOffText) {
 }
 
 // One row per Keyword_Search_List keyword, joined to Keyword_Intelligence's
-// Total_Jobs / Priority_Score / Status. lastMs and daysAgo are null for a
+// Total_Jobs / Priority_Score / Status. lastMs is null for a
 // keyword never searched (google.script.run can't return Date objects).
 function getKeywordPickerOptions_(ss) {
   var sl = ss.getSheetByName('Keyword_Search_List');
@@ -166,7 +166,6 @@ function getKeywordPickerOptions_(ss) {
     }
   }
 
-  var now  = new Date().getTime();
   var seen = {};
   var out  = [];
   sl.getRange(2, 1, sl.getLastRow() - 1, sl.getLastColumn()).getValues().forEach(function (r) {
@@ -180,7 +179,6 @@ function getKeywordPickerOptions_(ss) {
     out.push({
       keyword:   kw,
       lastMs:    lastMs,
-      daysAgo:   lastMs === null ? null : Math.floor((now - lastMs) / 86400000),
       jobs:      info.jobs,
       priority:  info.priority,
       status:    info.status,
